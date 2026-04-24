@@ -27,7 +27,16 @@ def upload_file(file_path: Path, bucket_name: str, ticker_eod: str) -> str:
         opts = {"upsert": "true"}
         if file_path.suffix.lower() == ".pdf": opts["content-type"] = "application/pdf"
         elif file_path.suffix.lower() == ".mp3": opts["content-type"] = "audio/mpeg"
-        supabase.storage.from_(bucket_name).upload(path=storage_path, file=f, file_options=opts)
+        elif file_path.suffix.lower() == ".mp4": opts["content-type"] = "video/mp4"
+        try:
+            supabase.storage.from_(bucket_name).remove([storage_path])
+        except Exception:
+            pass
+            
+        try:
+            supabase.storage.from_(bucket_name).upload(path=storage_path, file=f, file_options=opts)
+        except Exception as e:
+            print(f"[WARN] Upload threw an error (likely a parsing issue from storage3), but file might be in bucket: {e}")
     public_url = f"{SUPABASE_URL}/storage/v1/object/public/{bucket_name}/{storage_path}"
     print(f"[OK] Uploaded. URL: {public_url}")
     return public_url

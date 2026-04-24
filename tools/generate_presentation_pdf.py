@@ -49,11 +49,12 @@ COLOR_KASONA_ORANGE = (243, 108, 33)     # #F36C21 — Kasona Orange
 
 # Font Configuration
 FONT = "Consolas"
-SIZE_TITLE = 36
-SIZE_HEADER = 28
-SIZE_BODY = 18
-SIZE_TABLE = 14
-SIZE_MUTED = 10
+SIZE_TITLE = 32
+SIZE_HEADER = 24
+SIZE_SUBHEADER = 18
+SIZE_BODY = 14
+SIZE_TABLE = 12
+SIZE_MUTED = 9
 
 def strip_emoji(text):
     """Remove emoji and other non-BMP characters."""
@@ -101,26 +102,35 @@ def clean_text(text, strip_links=True):
     return text.strip()
 
 def download_company_logo(ticker, output_dir):
-    """Download company logo from EODHD."""
+    """Download company logo from EODHD with robust symbol handling."""
     parts = ticker.split(".")
     if len(parts) != 2: return None
     symbol, exchange = parts[0], parts[1]
-    url = f"https://eodhistoricaldata.com/img/logos/{exchange}/{symbol}.png"
-    logo_path = os.path.join(output_dir, f"{symbol.lower()}_logo.png")
-    try:
-        urllib.request.urlretrieve(url, logo_path)
-        if os.path.getsize(logo_path) < 100:
-            os.remove(logo_path)
-            return None
-        return logo_path
-    except: return None
+    
+    # Try with full symbol, then base symbol (e.g. BERG-B -> BERG)
+    symbols_to_try = [symbol, symbol.split("-")[0]]
+    
+    for s in symbols_to_try:
+        url = f"https://eodhistoricaldata.com/img/logos/{exchange}/{s}.png"
+        logo_path = os.path.join(output_dir, f"{s.lower()}_logo.png")
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as response:
+                if response.status == 200:
+                    with open(logo_path, 'wb') as f:
+                        f.write(response.read())
+                    if os.path.getsize(logo_path) > 100:
+                        return logo_path
+        except:
+            continue
+    return None
 
 class CompanyPresentationPDF(FPDF):
     """Custom PDF class with Kasona branding for Company Presentations (Landscape Slides)."""
 
     def __init__(self, title="Institutional Presentation", kasona_logo=None, company_logo=None, company_name=""):
-        # Initialize in Landscape mode for slides
-        super().__init__(orientation='L', unit='mm', format='A4')
+        # Initialize in Portrait mode for documents
+        super().__init__(orientation='P', unit='mm', format='A4')
         self.report_title = title
         self.today = datetime.now().strftime("%d.%m.%Y")
         self.kasona_logo_path = kasona_logo
@@ -131,11 +141,17 @@ class CompanyPresentationPDF(FPDF):
         self._register_unicode_fonts()
         self.set_auto_page_break(auto=True, margin=20)
 
+    def add_page(self, *args, **kwargs):
+        """Override add_page to track content state."""
+        super().add_page(*args, **kwargs)
+        self.page_has_content = False
+
     def add_slide(self):
-        """Add a new page only if the current page has content."""
+        """Add a new page only if the current page has content to prevent blank pages."""
         if self.page_has_content:
             self.add_page()
-            self.page_has_content = False
+            return True
+        return False
 
     def _register_unicode_fonts(self):
         self.add_font(FONT, "", os.path.join(UNICODE_FONT_DIR, UNICODE_FONT_REGULAR))
@@ -144,17 +160,51 @@ class CompanyPresentationPDF(FPDF):
         self.add_font(FONT, "BI", os.path.join(UNICODE_FONT_DIR, UNICODE_FONT_BOLD_ITALIC))
 
     def header(self):
-        if self.is_cover_page or self.page_no() <= 1: return
-        self.set_draw_color(*COLOR_PRIMARY_BLUE)
-        self.set_line_width(0.8)
-        self.line(self.l_margin, 8, self.w - self.r_margin, 8)
+        # Only skip header on the actual cover page
+        if self.is_cover_page: return
+        
+        self.set_y(12)
         self.set_font(FONT, "I", SIZE_MUTED)
         self.set_text_color(*COLOR_MUTED)
-        self.set_y(10)
-        self.cell(0, 5, f"KASONA INSTITUTIONAL — {self.company_name} Strategic Overview", align="L")
+        self.cell(0, 5, f"KASONA INSTITUTIONAL — {self.company_name}", align="L")
+        
+        # Consistent Kasona Logo in Header
         if self.kasona_logo_path and os.path.exists(self.kasona_logo_path):
-            self.image(self.kasona_logo_path, x=self.w - 50, y=5, h=10) # Larger logo in header
-        self.ln(10)
+            try:
+                self.image(self.kasona_logo_path, x=self.w - 35, y=8, h=6)
+            except: pass
+        
+        self.set_draw_color(*COLOR_PRIMARY_BLUE)
+        self.set_line_width(0.3)
+        self.line(self.l_margin, 16, self.w - self.r_margin, 16)
+        self.ln(8)
+
+    def add_section(self, title, content):
+        if not content or str(content).strip() == "":
+            return # Should not happen with ZNCR
+
+        title_upper = title.upper()
+        
+        # Color Coding for Bull/Bear cases
+        accent_color = COLOR_PRIMARY_BLUE
+        if "BULL" in title_upper:
+            accent_color = (34, 197, 94) # Green-600
+        elif "BEAR" in title_upper:
+            accent_color = (239, 68, 68)  # Red-600
+            
+        self.set_font(FONT, "B", SIZE_SUBHEADER)
+        self.set_text_color(*accent_color)
+        self.cell(0, 10, title_upper, ln=True)
+        
+        self.set_draw_color(*accent_color)
+        self.set_line_width(0.5)
+        self.line(self.get_x(), self.get_y(), self.get_x() + 40, self.get_y())
+        self.ln(5)
+        
+        self.set_font(FONT, "", SIZE_BODY)
+        self.set_text_color(*COLOR_DARK)
+        self.multi_cell(0, 8, strip_emoji(str(content)), align="L")
+        self.ln(12)
 
     def footer(self):
         if self.is_cover_page: return
@@ -171,12 +221,19 @@ class CompanyPresentationPDF(FPDF):
     def render_cover_page(self):
         self.is_cover_page = True
         self.add_page()
-        self.page_has_content = False # Cover page doesn't count as content for next slide break
-        dark_height = 140 # More dark height for landscape
+        # Cover page background
+        dark_height = 180 
         self.set_fill_color(*COLOR_COVER_BG)
         self.rect(0, 0, self.w, dark_height, 'F')
         
-        self.set_y(45)
+        # Kasona logo at TOP of cover (inside dark band)
+        if self.kasona_logo_path and os.path.exists(self.kasona_logo_path):
+            try:
+                self.image(self.kasona_logo_path, x=(self.w - 40) / 2, y=12, h=10)
+            except:
+                pass
+        
+        self.set_y(38)
         self.set_font(FONT, "B", SIZE_TABLE)
         self.set_text_color(*COLOR_KASONA_ORANGE)
         self.cell(0, 10, "CONFIDENTIAL INSTITUTIONAL RECORD", align="C")
@@ -186,43 +243,78 @@ class CompanyPresentationPDF(FPDF):
         self.set_text_color(*COLOR_WHITE)
         self.multi_cell(0, 15, clean_text(self.report_title).upper(), align="C")
         
-        # Add company logo in center area
-        logo_y = dark_height + 15
+        # Company Logo: Smaller and precisely centered on the page
+        logo_h = 25
+        logo_y = (self.h - logo_h) / 2
         if self.company_logo_path and os.path.exists(self.company_logo_path):
             try:
-                # Maintain aspect ratio for company logo
-                self.image(self.company_logo_path, x=(self.w-50)/2, y=logo_y, h=40)
-            except: pass
+                # Position centered horizontally and vertically
+                self.image(self.company_logo_path, x=(self.w - 50) / 2, y=logo_y, w=50)
+            except Exception as e:
+                print(f"[DEBUG] Cover logo error: {e}")
         
-        self.set_y(175)
+        self.set_y(265) # Start text below logo
         self.set_text_color(*COLOR_TEXT)
         self.set_font(FONT, "B", SIZE_TABLE)
         self.cell(0, 8, f"PREPARED BY KASONA INVEST ANALYSIS", align="C")
-        self.ln(10)
+        self.ln(6)
         self.set_font(FONT, "", SIZE_BODY)
         self.cell(0, 8, f"Strategic Intelligence Unit | {self.today}", align="C")
         
-        # Add Prominent Kasona Logo after text
         if self.kasona_logo_path and os.path.exists(self.kasona_logo_path):
             try:
-                self.ln(15)
-                self.image(self.kasona_logo_path, x=(self.w-60)/2, y=self.get_y(), h=15)
+                self.ln(12)
+                self.image(self.kasona_logo_path, x=(self.w-50)/2, y=self.get_y(), h=12)
             except: pass
         
-        self.set_y(-25)
+        self.is_cover_page = False
+
+    def render_last_page(self):
+        """Add the final page with disclaimer and Kasona production branding."""
+        self.is_cover_page = False # Ensure footer shows
+        
+        # Only add a slide if we're not already on a fresh page
+        if self.page_has_content:
+            self.add_page()
+        
+        # Now we are on a fresh page for the conclusion branding
+        self.set_y(60)
+        
+        # Center Branding
+        if self.kasona_logo_path and os.path.exists(self.kasona_logo_path):
+            self.image(self.kasona_logo_path, x=(self.w-60)/2, y=self.get_y(), h=15)
+            self.ln(20)
+            
+        self.set_font(FONT, "B", SIZE_HEADER)
+        self.set_text_color(*COLOR_PRIMARY_BLUE)
+        self.cell(0, 15, "A Kasona Production", align="C")
+        self.ln(15)
+        
+        self.set_font(FONT, "", SIZE_BODY)
+        self.set_text_color(*COLOR_TEXT)
+        self.cell(0, 10, "The solution for independent investors", align="C")
+        self.ln(10)
+        
+        # Link
+        self.set_font(FONT, "U", SIZE_BODY)
+        self.set_text_color(*COLOR_PRIMARY_BLUE)
+        self.cell(0, 10, "www.kasona.ai", link="https://www.kasona.ai/", align="C")
+        self.ln(40)
+        
+        # Disclaimer Box
         self.set_fill_color(*COLOR_LIGHT_BG)
         self.set_font(FONT, "I", SIZE_MUTED)
         self.set_text_color(*COLOR_MUTED)
         disclaimer = (
-            "This document provides a structural overview of the subject company for institutional use only. "
-            "It does not constitute financial advice. Accuracy is prioritized but not guaranteed."
+            "DISCLAIMER: This report is for informational purposes only and does not constitute investment advice. "
+            "All analysis is AI-generated and subject to verification. Precision is intended but not guaranteed. "
+            "Past performance is not indicative of future results."
         )
-        self.set_x(self.l_margin + 20)
-        self.multi_cell(self.w - 60, 5, disclaimer, fill=True, align="C")
-        self.is_cover_page = False
+        self.set_x(self.l_margin + 15)
+        self.multi_cell(self.w - 50, 5, disclaimer, border=1, fill=True, align="C")
 
-    def write_rich_text(self, text, h=10):
-        """Write rich text directly. Note: Does not handle line-wrapping as well as multi_cell."""
+    def write_rich_text(self, text, h=7):
+        """Write rich text directly with tightened spacing."""
         text = html.unescape(text)
         text = strip_emoji(text)
         parts = re.split(r'(\*\*.*?\*\*|\[.*?\]\(.*?\))', text)
@@ -234,30 +326,33 @@ class CompanyPresentationPDF(FPDF):
             elif part.startswith('['):
                 match = re.match(r'\[(.*?)\]\((.*?)\)', part)
                 if match:
-                    self.set_text_color(*COLOR_PRIMARY_BLUE)
-                    self.write(h, match.group(1), link=match.group(2))
-                    self.set_text_color(*COLOR_TEXT)
+                    label = match.group(1)
+                    url = match.group(2).strip()
+                    if url:
+                        self.set_text_color(*COLOR_PRIMARY_BLUE)
+                        self.write(h, label, link=url)
+                        self.set_text_color(*COLOR_TEXT)
+                    else:
+                        self.write(h, label)
             else:
                 self.set_font(FONT, "", self.font_size_pt)
                 self.write(h, part)
 
-    def write_paragraph(self, text, h=8, indent=0):
-        """Write a full paragraph with proper wrapping and optional indentation."""
+    def write_paragraph(self, text, h=7, indent=0):
+        """Write a paragraph with tightened line height."""
         self.set_x(self.l_margin + indent)
         w = self.w - self.r_margin - self.get_x()
         
         if "**" not in text and "[" not in text:
-            # Plain text: use multi_cell for perfect wrapping
             self.set_font(FONT, "", SIZE_BODY)
             self.multi_cell(w, h, clean_text(text))
         else:
-            # Rich text: use write_rich_text (may still have overlapping if word too long)
             self.write_rich_text(text, h=h)
-            self.ln(h + 2)
+            self.ln(h + 1)
         self.page_has_content = True
 
     def render_table(self, table_lines):
-        """Render a Markdown table as a professional slide table."""
+        """Render a Markdown table as a professional table."""
         if not table_lines: return
         rows = []
         for line in table_lines:
@@ -270,7 +365,7 @@ class CompanyPresentationPDF(FPDF):
             
         if not rows: return
         
-        if self.get_y() > 160:
+        if self.get_y() > 240: # Adjusted for portrait
             self.add_slide()
 
         self.set_font(FONT, "B", SIZE_TABLE)
@@ -279,7 +374,7 @@ class CompanyPresentationPDF(FPDF):
         self.set_fill_color(*COLOR_TABLE_HEADER)
         self.set_text_color(*COLOR_WHITE)
         for cell in rows[0]:
-            self.cell(col_width, 10, cell, border=1, align="C", fill=True)
+            self.cell(col_width, 8, cell, border=1, align="C", fill=True)
         self.ln()
         
         self.set_font(FONT, "", SIZE_TABLE)
@@ -288,15 +383,20 @@ class CompanyPresentationPDF(FPDF):
             fill = (i % 2 == 0)
             self.set_fill_color(*COLOR_LIGHT_BG)
             for cell in row:
-                self.cell(col_width, 10, cell, border=1, align="C", fill=fill)
+                self.cell(col_width, 8, cell, border=1, align="C", fill=fill)
             self.ln()
-        self.ln(5)
+        self.ln(4)
         self.page_has_content = True
 
     def render_image_slide(self, image_source, caption=""):
-        """Embed an image into the current slide, supporting local paths and web URLs."""
+        """Embed an image with centering for portrait mode."""
         image_path = image_source
         is_temp = False
+        
+        if image_source.startswith("file:///"):
+            image_path = image_source[8:]
+        elif image_source.startswith("file://"):
+            image_path = image_source[7:]
         
         if image_source.startswith("http"):
             try:
@@ -311,20 +411,35 @@ class CompanyPresentationPDF(FPDF):
                 print(f"Error downloading image {image_source}: {e}")
                 return
 
-        if not os.path.exists(image_path): return
+        if not os.path.exists(image_path):
+            print(f"[WARN] Image not found: {image_path}")
+            return
         
-        self.add_slide()
+        img_w = 170 # Fixed width for centering in 210mm
+        # Calculate height from aspect ratio using PIL to prevent overlaps
+        img_h = 100 # Default if PIL fails
+        try:
+            from PIL import Image
+            with Image.open(image_path) as img:
+                w, h = img.size
+                aspect = h / w
+                img_h = img_w * aspect
+        except Exception as e:
+            print(f"[DEBUG] Image dimension error: {e}")
+        
         self.ln(5)
         try:
-            img_h = 110
-            self.set_y(40)
-            # Center horizontally. w=297, scale image to fit width or height.
-            self.image(image_path, x=(self.w-180)/2, y=self.get_y(), h=img_h)
-            self.set_y(self.get_y() + img_h + 5)
+            # Check if image fits on page, else start new
+            if self.get_y() + img_h > 260:
+                self.add_slide()
+            
+            self.image(image_path, x=(self.w-img_w)/2, y=self.get_y(), w=img_w) 
+            self.set_y(self.get_y() + img_h + 8) # Move cursor below image accurately
+            
             if caption:
                 self.set_font(FONT, "I", SIZE_MUTED)
-                self.cell(0, 8, caption, align="C")
-                self.ln(10)
+                self.cell(0, 6, clean_text(caption), align="C")
+                self.ln(8)
         except Exception as e:
             print(f"Error rendering image: {e}")
         
@@ -334,7 +449,7 @@ class CompanyPresentationPDF(FPDF):
             
         self.page_has_content = True
 
-def convert_md_to_pdf(md_path, output_dir, ticker=None, kasona_logo=None):
+def convert_md_to_pdf(md_path, output_dir, ticker=None, kasona_logo=None, company_logo_manual=None):
     content = md_path.read_text(encoding="utf-8")
     lines = content.split("\n")
     title = md_path.stem
@@ -343,15 +458,24 @@ def convert_md_to_pdf(md_path, output_dir, ticker=None, kasona_logo=None):
             title = clean_text(line[2:])
             break
     company_name = title.split(":")[1].strip() if ":" in title else title
-    company_logo = download_company_logo(ticker, str(output_dir)) if ticker else None
+    
+    if company_logo_manual and os.path.exists(company_logo_manual):
+        company_logo = company_logo_manual
+    else:
+        company_logo = download_company_logo(ticker, str(output_dir)) if ticker else None
 
     pdf = CompanyPresentationPDF(title=title, kasona_logo=kasona_logo, company_logo=company_logo, company_name=company_name)
     pdf.alias_nb_pages()
     pdf.render_cover_page()
     
-    # After cover page, start first content slide
-    pdf.add_page()
+    # Crucial: after cover, we are ready for content
+    pdf.is_cover_page = False
     pdf.page_has_content = False 
+
+    # Check for images in content
+    has_images = any(re.match(r'!\[(.*?)\]\((.*?)\)', line.strip()) for line in lines)
+    injected_image = False
+    default_image = Path(__file__).parent.parent / "resources" / "visuals" / "industrial_1.png"
 
     skip_h1 = True
     in_table = False
@@ -360,9 +484,12 @@ def convert_md_to_pdf(md_path, output_dir, ticker=None, kasona_logo=None):
     for i, line in enumerate(lines):
         stripped = line.strip()
         
-        if "## [SUBSKILL] Neural Audio Briefing Script" in stripped:
-            break
-            
+        # Automatic Image Injection: after the first section (usually history)
+        if not has_images and not injected_image and stripped.startswith("## ") and i > 20:
+             if default_image.exists():
+                 pdf.render_image_slide(str(default_image), "Strategic Industrial Context")
+                 injected_image = True
+        
         if not stripped:
             if in_table:
                 pdf.render_table(table_lines)
@@ -371,7 +498,6 @@ def convert_md_to_pdf(md_path, output_dir, ticker=None, kasona_logo=None):
             continue
 
         if stripped == "---":
-            pdf.add_slide()
             continue
 
         img_match = re.match(r'!\[(.*?)\]\((.*?)\)', stripped)
@@ -390,15 +516,18 @@ def convert_md_to_pdf(md_path, output_dir, ticker=None, kasona_logo=None):
                 table_lines = []
                 in_table = False
             
-            pdf.add_slide()
-            pdf.ln(10)
+            # Break for H2 if lower on page
+            if pdf.get_y() > 140:
+                pdf.add_slide()
+            
+            pdf.ln(8)
             pdf.set_font(FONT, "B", SIZE_HEADER)
             pdf.set_text_color(*COLOR_PRIMARY_BLUE)
             pdf.set_x(pdf.l_margin)
-            pdf.multi_cell(pdf.epw, 12, clean_text(stripped[3:]))
+            pdf.multi_cell(pdf.epw, 10, clean_text(stripped[3:]))
             pdf.set_draw_color(*COLOR_BORDER)
-            pdf.line(pdf.l_margin, pdf.get_y()+2, pdf.w-pdf.r_margin, pdf.get_y()+2)
-            pdf.ln(12)
+            pdf.line(pdf.l_margin, pdf.get_y()+1, pdf.w-pdf.r_margin, pdf.get_y()+1)
+            pdf.ln(8)
             continue
 
         if stripped.startswith("### "):
@@ -407,15 +536,14 @@ def convert_md_to_pdf(md_path, output_dir, ticker=None, kasona_logo=None):
                 table_lines = []
                 in_table = False
 
-            # More aggressive slide break to keep sub-headers with their content
-            if pdf.get_y() > 165: pdf.add_slide()
-            else: pdf.ln(5) # Add space from previous content
+            if pdf.get_y() > 240: pdf.add_slide()
+            else: pdf.ln(4)
             
             pdf.set_font(FONT, "B", SIZE_BODY)
             pdf.set_text_color(*COLOR_ACCENT)
             pdf.set_x(pdf.l_margin)
-            pdf.multi_cell(pdf.epw, 10, clean_text(stripped[4:]))
-            pdf.ln(4)
+            pdf.multi_cell(pdf.epw, 8, clean_text(stripped[4:]))
+            pdf.ln(2)
             pdf.page_has_content = True
             continue
 
@@ -429,28 +557,21 @@ def convert_md_to_pdf(md_path, output_dir, ticker=None, kasona_logo=None):
             in_table = False
 
         if stripped.startswith("- "):
-            if pdf.get_y() > 185: pdf.add_slide()
+            if pdf.get_y() > 260: pdf.add_slide()
             pdf.set_font(FONT, "", SIZE_BODY)
             pdf.set_text_color(*COLOR_TEXT)
             pdf.set_x(pdf.l_margin + 10)
             bullet = chr(8226) + " "
-            pdf.write(10, bullet)
-            pdf.write_paragraph(stripped[2:], h=10, indent=15)
+            pdf.write(7, bullet)
+            pdf.write_paragraph(stripped[2:], h=7, indent=15)
         else:
-            if pdf.get_y() > 185: pdf.add_slide()
+            if pdf.get_y() > 260: pdf.add_slide()
             pdf.set_font(FONT, "", SIZE_BODY)
             pdf.set_text_color(*COLOR_TEXT)
-            pdf.write_paragraph(stripped, h=10, indent=0)
+            pdf.write_paragraph(stripped, h=7, indent=0)
 
-    if in_table:
-        pdf.render_table(table_lines)
-
-    pdf_path = output_dir / (md_path.stem + ".pdf")
-    pdf.output(str(pdf_path))
-    return pdf_path
-
-    if in_table:
-        pdf.render_table(table_lines)
+    # Render Conclusion Page
+    pdf.render_last_page()
 
     pdf_path = output_dir / (md_path.stem + ".pdf")
     pdf.output(str(pdf_path))
@@ -461,13 +582,14 @@ def main():
     parser.add_argument("file")
     parser.add_argument("--ticker")
     parser.add_argument("--output-dir")
+    parser.add_argument("--company-logo")
     args = parser.parse_args()
     
     md_path = Path(args.file).resolve()
     output_dir = Path(args.output_dir) if args.output_dir else md_path.parent
     logo_path = Path(__file__).parent.parent / "resources" / "kasona_logo.jpg"
     
-    pdf_path = convert_md_to_pdf(md_path, output_dir, args.ticker, str(logo_path) if logo_path.exists() else None)
+    pdf_path = convert_md_to_pdf(md_path, output_dir, args.ticker, str(logo_path) if logo_path.exists() else None, args.company_logo)
     print(f"Created: {pdf_path}")
 
 if __name__ == "__main__":
