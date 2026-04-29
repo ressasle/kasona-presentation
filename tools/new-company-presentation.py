@@ -37,12 +37,13 @@ from __future__ import annotations
 
 import os
 import sys
-import json
 import time
-import datetime
+import json
 import argparse
 import requests
+import datetime
 from typing import Any
+from pathlib import Path
 import google.generativeai as genai
 
 from dotenv import load_dotenv
@@ -327,6 +328,10 @@ Du gibst ausschließlich ein valides JSON-Objekt zurück mit folgenden Schlüsse
 - risk-success-factors: (Zusammenfassung der kritischen Risiko- und Erfolgsfaktoren)
 - bull-case: (Das optimistische Investment-Szenario)
 - bear-case: (Das pessimistische Investment-Szenario)
+- investment-thesis: (Kernargumentation für das Investment)
+- strategic-vision: (Langfristige Vision und Zielsetzung des Unternehmens)
+- competitive-landscape: (Detaillierte Analyse des Wettbewerbsumfelds)
+- growth-roadmap: (Strategischer Fahrplan für zukünftiges Wachstum)
 
 Anforderungen:
 - Sprache: ENGLISCH.
@@ -373,6 +378,67 @@ def run_pillars_analysis(company_name: str, gemini_key: str, max_retries: int = 
     except Exception as e:
         print(f"  [!] Failed to parse pillars JSON: {e}")
         return {"error": f"JSON Parse Error: {e}", "raw": raw_json}
+
+
+def translate_analysis_to_german(data: dict[str, str], gemini_key: str, max_retries: int = 15) -> dict[str, str]:
+    """Translates a dictionary of analytical fields into German using Gemini."""
+    if not gemini_key or not data:
+        return {}
+
+    system_prompt = (
+        "Du bist ein Senior Financial Translator. Übersetze die folgenden institutionellen Analyse-Texte "
+        "präzise ins Deutsche. Behalte den professionellen, analytischen Tonfall bei. "
+        "Ignoriere Marketing-Sprech. Gib ausschließlich ein valides JSON-Objekt mit denselben Schlüsseln zurück, "
+        "wobei die Werte die deutschen Übersetzungen sind."
+    )
+    
+    genai.configure(api_key=gemini_key)
+    model = genai.GenerativeModel(model_name=GEMINI_FLASH_LITE, system_instruction=system_prompt)
+    
+    print(f"    [AI] Translating analytical pillars to German...")
+    # Filter out error messages or very short strings
+    reliable_data = {k: v for k, v in data.items() if v and "[AI_ERROR]" not in v}
+    if not reliable_data:
+        return {}
+
+    raw_json = _generate_with_retry(model, json.dumps(reliable_data), max_retries)
+    
+    try:
+        cleaned = raw_json.replace("```json", "").replace("```", "").strip()
+        translated = json.loads(cleaned)
+        # Rename keys to include _de
+        return {f"{k}_de": v for k, v in translated.items()}
+    except Exception as e:
+        print(f"  [!] Failed to parse translation JSON: {e}")
+        return {}
+
+
+def upload_to_supabase_storage(file_path: str, bucket: str, ticker: str, supabase_client: Client) -> str:
+    """Uploads a file to Supabase Storage and returns the public URL."""
+    try:
+        path_obj = Path(file_path)
+        if not path_obj.exists():
+            return ""
+
+        file_name = f"{ticker.replace('.', '_')}_{path_obj.name}"
+        destination = f"{ticker}/{file_name}"
+        
+        with open(file_path, 'rb') as f:
+            supabase_client.storage.from_(bucket).upload(
+                path=destination,
+                file=f,
+                file_options={"cache-control": "3600", "upsert": "true"}
+            )
+        
+        # Get public URL
+        url_res = supabase_client.storage.from_(bucket).get_public_url(destination)
+        # If url_res is a string, return it; if it's an object with a public_url, return that
+        url = getattr(url_res, 'public_url', url_res) if not isinstance(url_res, str) else url_res
+        print(f"  [STORAGE] Uploaded {path_obj.name} to {bucket}. URL: {url}")
+        return url
+    except Exception as e:
+        print(f"  [!] Storage upload error for {file_path}: {e}")
+        return ""
 
 
 def ask_openrouter(prompt: str, system_prompt: str, api_key: str, model: str = "perplexity/sonar-reasoning", max_retries: int = 3) -> str:
@@ -545,6 +611,11 @@ def fetch_eodhd_fundamentals(ticker_eod: str, eodhd_key: str) -> dict:
     )
     try:
         r = requests.get(url, timeout=30)
+        if r.status_code == 404 and "." not in ticker_eod:
+            print(f"    [EODHD] 404 for {ticker_eod}, retrying with {ticker_eod}.US...")
+            url = f"https://eodhd.com/api/fundamentals/{ticker_eod}.US?api_token={eodhd_key}&fmt=json"
+            r = requests.get(url, timeout=30)
+        
         r.raise_for_status()
         data = r.json()
         gen  = data.get("General", {})
@@ -765,14 +836,46 @@ def sync_to_supabase(
         "leadership-governance":   data.get("leadership_audit", ""),
         "history-evolution":       data.get("history_evolution", ""),
         "ai_agent_firmenhistorie": data.get("firmenhistorie", ""),
+        
+        # Extended Analytical Columns (Pillars)
+        "rivalry":                 data.get("rivalry", ""),
+        "supplier-power":          data.get("supplier-power", ""),
+        "buyer-power":             data.get("buyer-power", ""),
+        "threat-of-entry":         data.get("threat-of-entry", ""),
+        "substitutes":             data.get("substitutes", ""),
+        "risk-success-factors":    data.get("risk-success-factors", ""),
+        "bull-case":               data.get("bull-case", ""),
+        "bear-case":               data.get("bear-case", ""),
+        "investment_thesis":       data.get("investment-thesis", ""),
+        "strategic_vision":        data.get("strategic-vision", ""),
+        "competitive_landscape":   data.get("competitive-landscape", ""),
+        "growth_roadmap":          data.get("growth-roadmap", ""),
+
+        # German Translations
+        "rivalry_de":               data.get("rivalry_de", ""),
+        "supplier-power_de":        data.get("supplier-power_de", ""),
+        "buyer-power_de":           data.get("buyer-power_de", ""),
+        "threat-of-entry_de":       data.get("threat-of-entry_de", ""),
+        "substitutes_de":           data.get("substitutes_de", ""),
+        "risk-success-factors_de":  data.get("risk-success-factors_de", ""),
+        "bull-case_de":             data.get("bull-case_de", ""),
+        "bear-case_de":             data.get("bear-case_de", ""),
+        "investment_thesis_de":     data.get("investment-thesis_de", ""),
+        "strategic_vision_de":      data.get("strategic-vision_de", ""),
+        "competitive_landscape_de": data.get("competitive-landscape_de", ""),
+        "growth_roadmap_de":        data.get("growth-roadmap_de", ""),
+        "history-evolution_de":     data.get("history-evolution_de", ""),
+        "leadership-governance_de":  data.get("leadership-governance_de", ""),
+
         # YouTube
         "youtube_ceo_interview":   ceo_vids[0]["url"] if ceo_vids else "",
         "youtube_podcast":         podcasts[0]["url"] if podcasts else "",
         # LinkedIn
         "linkedin_profiles":       data.get("linkedin_profiles", []),
-        # L4 HTML Report
+        # Artifact Links
         "l4_report":               data.get("l4_html_report", ""),
-        # EODHD officers (append to leadership if empty)
+        "html_url":                data.get("html_storage_url", ""),
+        
         # Metadata
         "n8n-info":                json.dumps(raw_metadata),
         "status":                  "to_review",
@@ -919,7 +1022,21 @@ def run_pipeline(
     results["l4_html_report"] = html_report
     print("  [DONE]")
 
-    print("\n[SUCCESS] Pipeline completed.\n")
+    # ── Phase 6: Strategic Pillars & Translation ───────────────────
+    print(f"\n[6/6] Generating Strategic Pillars (Porter's, Bull/Bear)...")
+    pillars = run_pillars_analysis(company_name, config["gemini_key"])
+    results.update(pillars)
+
+    print(f"\n[6/6] Translating Analytical Highlights to German...")
+    # Translate pillars + leadership + evolution
+    to_translate = {k: v for k, v in pillars.items()}
+    to_translate["leadership-governance"] = leadership_audit
+    to_translate["history-evolution"] = history_data["evolution"]
+    
+    de_translations = translate_analysis_to_german(to_translate, config["gemini_key"])
+    results.update(de_translations)
+    print("  [DONE]")
+
     return results
 
 
@@ -939,29 +1056,57 @@ def push_to_master_index(
     if not report_date:
         report_date = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-    # Extract scores if available in n8n-info or derive defaults
-    # In a full implementation, these would be parsed from LLM outputs
-    impact_score = 7  # Default for deep dive
-    sentiment_score = 0.5  # Neutral-Positive default
-
-    # Prepare file links (assuming they will be uploaded to storage later or are available)
-    # For now, we point to the HTML report context if available
-    files = []
+    # Prepare log entries for generated components
+    presentation_pdf_en = []
     if data.get("l4_html_report"):
-        files.append({"type": "html_report", "label": "Full Presentation HTML"})
+        presentation_pdf_en.append({
+            "type": "html_report", 
+            "label": "Full Presentation HTML", 
+            "status": "generated",
+            "url": data.get("html_storage_url", "")
+        })
+    if data.get("leadership_audit"):
+        presentation_pdf_en.append({"type": "component", "label": "Leadership & Governance Audit", "status": "generated"})
+    if data.get("history_evolution"):
+        presentation_pdf_en.append({"type": "component", "label": "Strategic Evolution Analysis", "status": "generated"})
+
+    presentation_pdf_de = []
+    if data.get("firmenhistorie"):
+        presentation_pdf_de.append({"type": "component", "label": "Firmenhistorie & Heritage", "status": "generated"})
+    if data.get("l4_html_report_de"): # If we ever generate a German HTML specifically
+         presentation_pdf_de.append({
+            "type": "html_report", 
+            "label": "Full Presentation HTML (DE)", 
+            "status": "generated",
+            "url": data.get("html_storage_url_de", "")
+        })
+
+    presentation_audio_en = []
+    if data.get("presentation_audio_en"):
+        presentation_audio_en.append({"type": "presentation_audio", "label": "Presentation Audio (EN)", "url": data["presentation_audio_en"]})
+
+    presentation_audio_de = []
+    if data.get("presentation_audio_de"):
+        presentation_audio_de.append({"type": "presentation_audio", "label": "Presentation Audio (DE)", "url": data["presentation_audio_de"]})
 
     payload = {
         "ticker_eod": ticker_eod,
+        "company_name": data.get("company_name"),
         "report_date": report_date,
         "skill_id": SKILL_ID,
         "report_type": DEFAULT_REPORT_TYPE,
         "trigger_reason": "On-demand Request",
-        "impact_score": impact_score,
-        "sentiment_score": sentiment_score,
-        "summary_en": data.get("history_analysis", "")[:1000], # Excerpt as summary
-        "summary_de": data.get("leadership_audit", "")[:1000],  # Excerpt as summary
-        "files": files,
+        "presentation_pdf_en": presentation_pdf_en,
+        "presentation_pdf_de": presentation_pdf_de,
+        "presentation_audio_en": presentation_audio_en,
+        "presentation_audio_de": presentation_audio_de,
+        "quarterly_analysis_pdf_en": [],
+        "quarterly_analysis_pdf_de": [],
+        "quarterly_analysis_audio_en": [],
+        "quarterly_analysis_audio_de": [],
+        "created_by": "n8n-automation",
         "review_status": "published",
+        "html_report_url": data.get("html_storage_url", ""),
         "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
     }
 
@@ -1093,8 +1238,15 @@ def main():
                     results = run_pipeline(curr_company, curr_ticker, config)
                     
                     # Sync
-                    sync_to_supabase(curr_ticker, results, supabase_client)
-                    push_to_master_index(curr_ticker, results, supabase_client)
+                    if args.supabase_sync:
+                        # Upload HTML
+                        html_path = os.path.join(args.output_dir, f"{curr_company.replace(' ', '_')}_l4_report.html")
+                        if os.path.exists(html_path):
+                            html_url = upload_to_supabase_storage(html_path, "company-presentations", curr_ticker, supabase_client)
+                            results["html_storage_url"] = html_url
+                        
+                        sync_to_supabase(curr_ticker, results, supabase_client)
+                        push_to_master_index(curr_ticker, results, supabase_client)
                 except Exception as e:
                     print(f"  [!] Pipeline failed for {curr_company}: {e}")
             
@@ -1110,7 +1262,7 @@ def main():
         try:
             # Query for all tickers and check presence of the 11 columns
             res = supabase_client.table("company_presentation") \
-                .select("id, ticker_eod, company_name, ai_agent_firmenhistorie, \"history-evolution\", \"leadership-governance\", \"risk-success-factors\", \"bull-case\", \"bear-case\", rivalry, \"supplier-power\", \"buyer-power\", \"threat-of-entry\", substitutes") \
+                .select("id, ticker_eod, company_name, ai_agent_firmenhistorie, \"history-evolution\", \"leadership-governance\", \"risk-success-factors\", \"bull-case\", \"bear-case\", rivalry, \"supplier-power\", \"buyer-power\", \"threat-of-entry\", substitutes, growth_roadmap, l4_report, investment_thesis, strategic_vision, competitive_landscape, investment_thesis_de, strategic_vision_de, competitive_landscape_de, growth_roadmap_de, \"leadership-governance_de\", \"history-evolution_de\"") \
                 .execute()
             
             all_records = res.data
@@ -1122,30 +1274,47 @@ def main():
                 # Identify missing or error pillars
                 is_missing = lambda val: not val or "[AI_ERROR]" in str(val)
                 
-                # Porter's + Investment Thesis (8 columns)
+                # Porter's + Extra Pillars (11 columns)
                 strategic_keys = [
                     "rivalry", "supplier-power", "buyer-power", "threat-of-entry", "substitutes",
-                    "risk-success-factors", "bull-case", "bear-case"
+                    "risk-success-factors", "bull-case", "bear-case", 
+                    "investment_thesis", "strategic_vision", "competitive_landscape"
                 ]
-                needs_strategic = any(is_missing(rec.get(k)) for k in strategic_keys)
+                # Map DB columns to AI JSON keys (hyphen)
+                db_to_ai = {
+                    "investment_thesis": "investment-thesis",
+                    "strategic_vision": "strategic-vision",
+                    "competitive_landscape": "competitive-landscape",
+                    "growth_roadmap": "growth-roadmap"
+                }
                 
+                needs_strategic = any(is_missing(rec.get(k)) for k in strategic_keys)
+                needs_roadmap = is_missing(rec.get("growth_roadmap"))
+                
+                # Translations
+                translation_keys = [f"{k}_de" for k in strategic_keys] + ["growth_roadmap_de", "leadership-governance_de", "history-evolution_de"]
+                needs_translation = any(is_missing(rec.get(k)) for k in translation_keys)
+
                 # Core Pillars
                 needs_history = is_missing(rec.get("history-evolution")) or is_missing(rec.get("ai_agent_firmenhistorie"))
                 needs_leadership = is_missing(rec.get("leadership-governance"))
+                needs_report = is_missing(rec.get("l4_report"))
                 
-                if not (needs_strategic or needs_history or needs_leadership):
+                if not (needs_strategic or needs_history or needs_leadership or needs_roadmap or needs_report or needs_translation):
                     continue
                 
                 print(f"\n[PATCHING] {company} ({ticker})")
                 patch_payload = {}
                 
-                # 1. Strategic Pillars
+                # 1. Strategic Pillars (English)
                 if needs_strategic:
+                    print(f"    [AI] Regenerating missing English strategic pillars...")
                     pillars = run_pillars_analysis(company, config["gemini_key"])
                     if pillars and "error" not in pillars:
                         for k in strategic_keys:
-                            if is_missing(rec.get(k)) and pillars.get(k):
-                                patch_payload[k] = pillars[k]
+                            ai_key = db_to_ai.get(k, k)
+                            if is_missing(rec.get(k)) and pillars.get(ai_key):
+                                patch_payload[k] = pillars[ai_key]
                 
                 # 2. History Pillars
                 if needs_history:
@@ -1162,6 +1331,94 @@ def main():
                     l_audit = run_leadership_audit(company, config)
                     if l_audit and not is_missing(l_audit):
                         patch_payload["leadership-governance"] = l_audit
+
+                # 4. Roadmap (if still missing)
+                if needs_roadmap:
+                    print(f"    [AI] Regenerating missing growth roadmap...")
+                    roadmap_prompt = f"Provide a 1-sentence growth roadmap for {company}. Focus on M&A, R&D, or geographical expansion."
+                    model = genai.GenerativeModel(GEMINI_3_FLASH)
+                    try:
+                        r_res = model.generate_content(roadmap_prompt).text.strip()
+                        if r_res and not is_missing(r_res):
+                            patch_payload["growth_roadmap"] = r_res
+                    except: pass
+
+                # ── German Translation Sync ──────────────────────────
+                if patch_payload or needs_translation:
+                    print(f"    [TRANS] Syncing German translations for analytical blocks...")
+                    # Build list of fields to translate (English sources)
+                    to_translate = {}
+                    # If we just patched EN, use those. Otherwise, use existing DB values.
+                    for k in strategic_keys:
+                        en_val = patch_payload.get(k) or rec.get(k)
+                        if en_val and not is_missing(en_val): to_translate[k] = en_val
+                    
+                    en_roadmap = patch_payload.get("growth_roadmap") or rec.get("growth_roadmap")
+                    if en_roadmap and not is_missing(en_roadmap): to_translate["growth_roadmap"] = en_roadmap
+                    
+                    en_leadership = patch_payload.get("leadership-governance") or rec.get("leadership-governance")
+                    if en_leadership and not is_missing(en_leadership): to_translate["leadership-governance"] = en_leadership
+                    
+                    en_history = patch_payload.get("history-evolution") or rec.get("history-evolution")
+                    if en_history and not is_missing(en_history): to_translate["history-evolution"] = en_history
+
+                    if to_translate:
+                        de_data = translate_analysis_to_german(to_translate, config["gemini_key"])
+                        # Only patch missing or newly translated German fields
+                        for de_k, de_v in de_data.items():
+                            orig_k = de_k.replace("_de", "")
+                            # Map back to DB key (preserve hyphens)
+                            if is_missing(rec.get(de_k)) or patch_payload.get(orig_k):
+                                patch_payload[de_k] = de_v
+
+                # 5. Full Report Regeneration
+                if patch_payload or needs_report:
+                    print(f"    [REPORT] Regenerating full report to incorporate patches...")
+                    # Fetch EODHD if needed (for metadata)
+                    eodhd_data = fetch_eodhd_fundamentals(ticker, config["eodhd_key"])
+                    
+                    # Pull existing approved transcripts to avoid data loss in the report
+                    staged_transcripts = check_staging_approval(ticker, supabase_client)
+                    # Convert DB format to generator format (video_url -> url)
+                    for st in staged_transcripts:
+                        st["url"] = st.get("video_url", "")
+                        st["channel"] = "(Staged/Verified)"
+                        st["publishedAt"] = "2024-01-01" # Default if missing
+                    
+                    ceo_vids = [t for t in staged_transcripts if "ceo" in t.get("title", "").lower() or "interview" in t.get("title", "").lower()]
+                    pod_vids = [t for t in staged_transcripts if t not in ceo_vids]
+
+                    # Generate HTML
+                    html_report = generate_l4_html_report(
+                        company_name = company,
+                        leadership_analysis = patch_payload.get("leadership-governance", rec.get("leadership-governance")),
+                        history_analysis = patch_payload.get("history-evolution", rec.get("history-evolution")),
+                        ceo_interviews = ceo_vids,
+                        podcasts = pod_vids,
+                        linkedin_profiles = [], # LinkedIn profiles aren't currently staged in a separate table
+                        eodhd_data = eodhd_data
+                    )
+                    
+                    # Sync HTML to Storage
+                    temp_html = f"temp_{ticker}_report.html"
+                    with open(temp_html, "w", encoding="utf-8") as f:
+                        f.write(html_report)
+                    
+                    if args.supabase_sync:
+                        html_url = upload_to_supabase_storage(temp_html, "company-presentations", ticker, supabase_client)
+                        patch_payload["l4_report"] = html_url
+                        patch_payload["status"] = "uploaded"
+                        
+                        # Also update Master Index metadata
+                        results_for_index = {
+                            "company_name": company,
+                            "l4_html_report": html_report,
+                            "html_storage_url": html_url
+                        }
+                        push_to_master_index(ticker, results_for_index, supabase_client)
+                    
+                    if os.path.exists(temp_html):
+                        os.remove(temp_html)
                 
                 if patch_payload:
                     if patch_pillars_to_supabase(ticker, patch_payload, supabase_client):
@@ -1226,6 +1483,12 @@ def main():
         if not args.ticker_eod:
             print("  [!] --supabase-sync requires --ticker-eod")
             sys.exit(1)
+            
+        # Upload HTML
+        if os.path.exists(html_path):
+            html_url = upload_to_supabase_storage(html_path, "company-presentations", args.ticker_eod, supabase_client)
+            results["html_storage_url"] = html_url
+
         sync_to_supabase(args.ticker_eod, results, supabase_client)
         push_to_master_index(args.ticker_eod, results, supabase_client)
 

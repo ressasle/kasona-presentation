@@ -2,3 +2,24 @@
 __pycache__/
 output/
 data.json
+
+# Generated Artifacts
+*.pdf
+*.mp3
+*.mp4
+*.png
+*.jpg
+*_presentation.md
+*_presentation_fresh.md
+*_source_data.md
+mass_population_state.json
+tools/population_log.txt
+
+# Folders
+artifacts/
+drafts/
+tmp/
+visuals/
+references/
+branding/
+resources/

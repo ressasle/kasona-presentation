@@ -92,11 +92,12 @@ Every production run must explicitly populate the following columns in `public.c
 - **`rivalry`, `supplier-power`, `buyer-power`, `threat-of-entry`, `substitutes`**: Robust Porter's Five Forces synthesis (Institutional rationale mandatory).
 
 ### 3.5 Zero-Null Compliance Rule (ZNCR)
-**Mandatory Occupancy**: Every record in `public.company_presentation` must have **100% column occupancy** across ALL columns in the table above before final artifact generation. No column may be left empty or contain placeholders.
+**Mandatory Occupancy**: Every record in `public.company_presentation` must have **100% column occupancy** across ALL columns (both English and German) before final artifact generation. No column may be left empty or contain placeholders.
 **Enforcement**: 
-1. The `remediate_all_pillars.py` tool must be run as a pre-flight check to fill any missing data.
-2. The `generate_ticker_artifacts.py` tool must **fail** with a `Non-Compliance Error` if any structural field contains "No data available" or is null/empty. This prevents the generation of incomplete reports.
-3. Placeholders like "None" or "N/A" are strictly prohibited in institutional synthesis.
+1. The `remediate_all_pillars.py` tool must be run as a pre-flight check to fill any missing English content.
+2. The `populate_german_content.py` tool must follow immediately to ensure all translated pillars (`*_de`) are synchronized and reach the 50-character minimum density using the same institutional persona.
+3. The `generate_ticker_artifacts.py` tool must **fail** with a `Non-Compliance Error` if any structural field (EN or DE) contains "No data available" or is null/empty.
+4. Placeholders like "None" or "N/A" are strictly prohibited in institutional synthesis.
 
 ---
 

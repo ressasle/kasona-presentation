@@ -258,36 +258,36 @@ class CompanyAnalyzer:
     # ------------------------------------------------------------------
     def analyze_leadership(self, company_name: str) -> str:
         prompt = (
-            f"Rolle & Autoritaet: Senior Leadership & Governance Auditor (Kasona Division)."
-            f" Mission: Seziere C-Suite, Board, Aktionaearsstruktur und Risiken von {company_name}."
-            f" Struktur: Executive Leadership | Board of Directors | Aktionaersstruktur | Risiko-Check."
-            f" Erstelle einen praezisen, faktenbasierten Audit-Report."
+            f"Role: Senior Strategic Analyst & Governance Auditor.\n"
+            f"Mission: Provide a purely fact-based audit of executive leadership, board composition, and ownership structure for {company_name}.\n"
+            f"Structure: Executive Leadership | Board of Directors | Ownership Matrix | Governance Audit.\n"
+            f"Requirements: 0% process transparency. Strictly data-driven. Write in English."
         )
-        return self._ask_ai(prompt, company_name)
+        return self._ask_ai("", prompt)
 
     def analyze_company_history(self, company_name: str) -> str:
         prompt = (
-            f"Role: Global Equity Research Director.\n"
-            f"Mission: Document the deep history and strategic transformation of {company_name}.\n"
+            f"Role: Senior Strategic Analyst & Governance Auditor.\n"
+            f"Mission: Document the strategic transformation and core asset evolution of {company_name}.\n"
             f"Structure:\n"
             f"1. Founding & Original Mission\n"
             f"2. Strategic Pivot Points (M&A, Divestments)\n"
-            f"3. Cultural DNA & Governance Heritage\n"
-            f"4. Evolution of Core Assets.\n"
-            f"Strictly facts, NO filler words. Write in English."
+            f"3. Operational Strengths & Governance Heritage\n"
+            f"4. Evolution of Core Capabilities.\n"
+            f"Requirements: Strictly facts, NO filler or promotional language. Write in English."
         )
-        return self._ask_ai(prompt, company_name)
+        return self._ask_ai("", prompt)
 
     def analyze_porter_five_forces(self, company_name: str) -> Dict[str, str]:
         prompt = (
-            f"Role: Strategic Industry Analyst.\n"
-            f"Mission: Conduct a Porter's Five Forces analysis for {company_name}.\n"
-            f"For each force, provide a detailed analysis (3-4 sentences).\n"
+            f"Role: Senior Strategic Analyst & Governance Auditor.\n"
+            f"Mission: Conduct a Porter's Five Forces synthesis for {company_name}.\n"
+            f"For each force, provide a detailed qualitative assessment (High/Medium/Low) and 3-4 sentences of institutional rationale.\n"
             f"Return the result in JSON format with these exact keys:\n"
             f"'rivalry', 'supplier-power', 'buyer-power', 'threat-of-entry', 'substitutes'.\n"
-            f"Ensure the response is ONLY the JSON object. Write in English."
+            f"Requirements: 0% process transparency. Write in English."
         )
-        res_raw = self._ask_ai(prompt, company_name, response_mime_type="application/json")
+        res_raw = self._ask_ai("", prompt, response_mime_type="application/json")
         try:
             # Basic cleanup if AI adds markdown
             if "{" in res_raw:

@@ -59,7 +59,11 @@ def synthesize_batch(ticker, company_name, missing_pillars, context):
     pillar_descriptions = "\n".join([f"- {p}: {PILLARS[p]}" for p in missing_pillars])
     
     prompt = f"""
-    You are an institutional equity researcher. Provide a high-fidelity analysis for the following missing pillars for {company_name} ({ticker}).
+    Role: Senior Strategic Analyst & Governance Auditor.
+    Mission: Provide a purely fact-based, value-neutral analysis of a target company.
+    Operating Protocol: Strict evidence-based logic. Avoid promotional adjectives (e.g., 'leading', 'innovative', 'unique') unless backed by specific market share data or KPIs.
+    
+    Task: Provide a high-fidelity analysis for the following missing pillars for {company_name} ({ticker}).
     
     Context:
     {context}
@@ -71,6 +75,7 @@ def synthesize_batch(ticker, company_name, missing_pillars, context):
     - Return analysis in JSON format where keys matching the missing pillars.
     - For Bull/Bear: Provide 3 clear, numbered points with a heading and brief rationale.
     - For Porter's Five Forces: Qualitative assessment (High/Medium/Low) + 2-3 sentence institutional rationale.
+    - 0% process transparency: Do not mention that you are an AI, an LLM, or a researcher. Return direct analysis only.
     
     Output Format:
     {{
@@ -81,8 +86,6 @@ def synthesize_batch(ticker, company_name, missing_pillars, context):
     """
     
     models_to_try = [
-        "models/gemini-3.1-flash-lite-preview",
-        "models/gemini-2.5-flash-native-audio-latest",
         "models/gemini-2.0-flash",
         "models/gemini-2.0-flash-lite",
         "models/gemini-flash-latest"
@@ -98,6 +101,7 @@ def synthesize_batch(ticker, company_name, missing_pillars, context):
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         response_mime_type='application/json',
+                        temperature=0.1
                     )
                 )
                 res_text = response.text.strip()
