@@ -309,12 +309,55 @@ Zwingendes Ausführungsprotokoll (Deep Research Modus):
 - Werbe-Filter: Ignoriere „führend", „revolutionär", „einzigartig" ohne belegbare KPI.
 - Quellen-Ranking: Priorisiere Reuters, Financial Times, Handelsblatt und offizielle Unternehmensdaten.
 
-Struktur der Analyse (ENGLISCH):
-1. History & Evolution: Chronological milestones with strategic pivots (Pivots, M&A).
+Struktur der Analyse (ENGLISCH) — NUR History & Evolution:
+1. Founding & Origin Story: The genesis, founding vision, and early years.
+2. Strategic Pivots & M&A: Key transformational moments, acquisitions, divestitures.
+3. Growth Phases: Major expansion periods, market entries, geographic diversification.
+4. Modern Era: Current strategic positioning and evolution trajectory.
 
-IMPORTANT: Only write about History & Evolution. Do NOT include Core Assets, Porter's Five Forces, or Risk/Success Factors — those are generated separately.
+WICHTIG: Schreibe NUR über die Firmenhistorie und strategische Evolution. Keine Core Assets, keine Porter's Five Forces, keine Risk/Success Factors. Starte direkt mit dem ersten Analysepunkt ohne einleitende Floskeln."""
 
-Starte direkt mit dem ersten Analysepunkt ohne einleitende Floskeln."""
+CORE_ASSETS_SYSTEM_PROMPT = """Du bist ein Senior Equity Research Analyst. Deine Aufgabe ist die präzise Analyse der Kernkompetenzen und strategischen Assets eines Unternehmens.
+
+Struktur (ENGLISCH):
+1. Intellectual Property & Patents: Key patents, trade secrets, proprietary technology.
+2. Physical Infrastructure: Manufacturing, distribution, logistics networks.
+3. Data & Digital Assets: Proprietary data, platforms, digital ecosystems.
+4. Operational Strengths: Process excellence, supply chain, cost advantages.
+5. Human Capital: Key talent pools, R&D capabilities, organizational culture.
+
+Tonfall: Institutionell, analytisch, keine Werbesprache. Starte direkt ohne Einleitung."""
+
+CORE_ASSETS_DE_SYSTEM_PROMPT = """Du bist ein Senior Corporate Analyst. Erstelle eine detaillierte deutschsprachige Analyse der Kernkompetenzen und strategischen Assets.
+
+Struktur (DEUTSCH):
+1. Geistiges Eigentum & Patente: Schlüsselpatente, proprietäre Technologie.
+2. Physische Infrastruktur: Fertigung, Distribution, Logistiknetzwerke.
+3. Daten & Digitale Assets: Proprietäre Daten, Plattformen, digitale Ökosysteme.
+4. Operative Stärken: Prozessexzellenz, Lieferkette, Kostenvorteile.
+5. Humankapital: Schlüsseltalente, F&E-Kapazitäten, Organisationskultur.
+
+Schreibe ausschließlich auf DEUTSCH. Keine Einleitungsfloskeln."""
+
+SUCCESS_FAILURE_SYSTEM_PROMPT = """Du bist ein Senior Investment Analyst. Analysiere die kritischen Erfolgs- und Misserfolgsfaktoren eines Unternehmens als Investitions-KPIs.
+
+Struktur (ENGLISCH):
+1. Critical Success Drivers: What must go right for the investment thesis to work?
+2. Key Risk Variables: What could derail the business model?
+3. Investment KPIs to Watch: Specific metrics investors should monitor.
+4. Historical Pattern Recognition: Past instances where similar factors played out.
+
+Tonfall: Institutionell, datengetrieben. Starte direkt ohne Einleitung."""
+
+SUCCESS_FAILURE_DE_SYSTEM_PROMPT = """Du bist ein Senior Investment Analyst. Analysiere die kritischen Erfolgs- und Misserfolgsfaktoren als Investitions-KPIs.
+
+Struktur (DEUTSCH):
+1. Kritische Erfolgstreiber: Was muss richtig laufen, damit die Investmentthese funktioniert?
+2. Zentrale Risikovariablen: Was könnte das Geschäftsmodell gefährden?
+3. Investitions-KPIs: Spezifische Kennzahlen, die Investoren überwachen sollten.
+4. Historische Mustererkennung: Vergangene Fälle, in denen ähnliche Faktoren relevant waren.
+
+Schreibe ausschließlich auf DEUTSCH. Keine Einleitungsfloskeln."""
 
 STRATEGIC_PILLARS_SYSTEM_PROMPT = """Rolle & Autorität: Du bist ein Senior Equity Research Analyst. Deine Aufgabe ist die Erstellung einer präzisen, datengetriebenen Analyse der strategischen Säulen eines Unternehmens.
 
@@ -480,7 +523,8 @@ def ask_openrouter(prompt: str, system_prompt: str, api_key: str, model: str = "
 
 
 def run_history_analysis(company_name: str, gemini_key: str, max_retries: int = 15) -> dict[str, str]:
-    """Calls Gemini to perform both English Strategic Evolution and German Heritage Analysis."""
+    """Calls Gemini to perform History & Evolution (EN), Firmenhistorie (DE),
+    Core Assets (EN/DE), and Success/Failure Factors (EN/DE)."""
     if not gemini_key:
         return {"evolution": "[SKIPPED]", "firmenhistorie": "[SKIPPED]"}
 
@@ -488,7 +532,7 @@ def run_history_analysis(company_name: str, gemini_key: str, max_retries: int = 
     
     results = {}
     
-    # 1. English Evolution
+    # 1. English Evolution (History Only)
     print(f"    [AI] Generating English History & Evolution (Gemini 3 Flash)...")
     model_en = genai.GenerativeModel(model_name=GEMINI_3_FLASH, system_instruction=HISTORY_SYSTEM_PROMPT)
     results["evolution"] = _generate_with_retry(model_en, f"Strategic Evolution Analysis for: {company_name}", max_retries)
@@ -497,6 +541,26 @@ def run_history_analysis(company_name: str, gemini_key: str, max_retries: int = 
     print(f"    [AI] Generating German Firmenhistorie (Gemini 3 Flash)...")
     model_de = genai.GenerativeModel(model_name=GEMINI_3_FLASH, system_instruction=FIRMENHISTORIE_SYSTEM_PROMPT)
     results["firmenhistorie"] = _generate_with_retry(model_de, f"Detaillierte Firmenhistorie für: {company_name}", max_retries)
+
+    # 3. Core Assets & Capabilities (EN)
+    print(f"    [AI] Generating Core Assets & Capabilities EN (Gemini 3 Flash)...")
+    model_ca = genai.GenerativeModel(model_name=GEMINI_3_FLASH, system_instruction=CORE_ASSETS_SYSTEM_PROMPT)
+    results["core_assets"] = _generate_with_retry(model_ca, f"Core Assets & Capabilities Analysis for: {company_name}", max_retries)
+
+    # 4. Core Assets & Capabilities (DE)
+    print(f"    [AI] Generating Core Assets & Capabilities DE (Gemini 3 Flash)...")
+    model_ca_de = genai.GenerativeModel(model_name=GEMINI_3_FLASH, system_instruction=CORE_ASSETS_DE_SYSTEM_PROMPT)
+    results["core_assets_de"] = _generate_with_retry(model_ca_de, f"Kernkompetenzen & Infrastruktur-Analyse für: {company_name}", max_retries)
+
+    # 5. Success/Failure Factors (EN)
+    print(f"    [AI] Generating Success/Failure Factors EN (Gemini 3 Flash)...")
+    model_sf = genai.GenerativeModel(model_name=GEMINI_3_FLASH, system_instruction=SUCCESS_FAILURE_SYSTEM_PROMPT)
+    results["success_failure"] = _generate_with_retry(model_sf, f"Success & Failure Factor Analysis for: {company_name}", max_retries)
+
+    # 6. Success/Failure Factors (DE)
+    print(f"    [AI] Generating Success/Failure Factors DE (Gemini 3 Flash)...")
+    model_sf_de = genai.GenerativeModel(model_name=GEMINI_3_FLASH, system_instruction=SUCCESS_FAILURE_DE_SYSTEM_PROMPT)
+    results["success_failure_de"] = _generate_with_retry(model_sf_de, f"Erfolgs- und Misserfolgsfaktoren-Analyse für: {company_name}", max_retries)
 
     return results
 
@@ -844,8 +908,8 @@ def sync_to_supabase(
         "buyer-power":             data.get("buyer-power", ""),
         "threat-of-entry":         data.get("threat-of-entry", ""),
         "substitutes":             data.get("substitutes", ""),
-        "core-assets-capabilities": data.get("core-assets-capabilities", ""),
-        "success-failure-factors":  data.get("success-failure-factors", ""),
+        "core-assets-capabilities": data.get("core_assets", "") or data.get("core-assets-capabilities", ""),
+        "success-failure-factors":  data.get("success_failure", "") or data.get("success-failure-factors", ""),
         "risk-success-factors":    data.get("risk-success-factors", ""),
         "bull-case":               data.get("bull-case", ""),
         "bear-case":               data.get("bear-case", ""),
@@ -860,8 +924,8 @@ def sync_to_supabase(
         "buyer-power_de":           data.get("buyer-power_de", ""),
         "threat-of-entry_de":       data.get("threat-of-entry_de", ""),
         "substitutes_de":           data.get("substitutes_de", ""),
-        "core-assets-capabilities_de": data.get("core-assets-capabilities_de", ""),
-        "success-failure-factors_de":  data.get("success-failure-factors_de", ""),
+        "core-assets-capabilities_de": data.get("core_assets_de", "") or data.get("core-assets-capabilities_de", ""),
+        "success-failure-factors_de":  data.get("success_failure_de", "") or data.get("success-failure-factors_de", ""),
         "risk-success-factors_de":  data.get("risk-success-factors_de", ""),
         "bull-case_de":             data.get("bull-case_de", ""),
         "bear-case_de":             data.get("bear-case_de", ""),
@@ -987,11 +1051,15 @@ def run_pipeline(
     results["leadership_audit"] = leadership_audit
     print("  [DONE]")
 
-    # ── Phase 2b: History Analysis (EN + DE Split) ───────────────────
-    print(f"\n[2b/6] Company History Analysis (Strategic Evolution & Heritage)...")
+    # ── Phase 2b: History + Modular Research (EN + DE Split) ────────
+    print(f"\n[2b/8] Company History, Core Assets & Success Factors...")
     history_data = run_history_analysis(company_name, config["gemini_key"])
     results["history_evolution"] = history_data["evolution"]
     results["firmenhistorie"] = history_data["firmenhistorie"]
+    results["core_assets"] = history_data.get("core_assets", "")
+    results["core_assets_de"] = history_data.get("core_assets_de", "")
+    results["success_failure"] = history_data.get("success_failure", "")
+    results["success_failure_de"] = history_data.get("success_failure_de", "")
     print("  [DONE]")
 
     # ── Phase 3: Name Extraction → LinkedIn (Gemini 3 Flash) ─────────
