@@ -1142,10 +1142,18 @@ def push_to_master_index(
         presentation_pdf_en.append({"type": "component", "label": "Leadership & Governance Audit", "status": "generated"})
     if data.get("history_evolution"):
         presentation_pdf_en.append({"type": "component", "label": "Strategic Evolution Analysis", "status": "generated"})
+    if data.get("core_assets"):
+        presentation_pdf_en.append({"type": "component", "label": "Core Assets & Capabilities", "status": "generated"})
+    if data.get("success_failure"):
+        presentation_pdf_en.append({"type": "component", "label": "Success & Failure Factors", "status": "generated"})
 
     presentation_pdf_de = []
     if data.get("firmenhistorie"):
         presentation_pdf_de.append({"type": "component", "label": "Firmenhistorie & Heritage", "status": "generated"})
+    if data.get("core_assets_de"):
+        presentation_pdf_de.append({"type": "component", "label": "Kernkompetenzen & Infrastruktur", "status": "generated"})
+    if data.get("success_failure_de"):
+        presentation_pdf_de.append({"type": "component", "label": "Faktoren für Erfolg & Misserfolg", "status": "generated"})
     if data.get("l4_html_report_de"): # If we ever generate a German HTML specifically
          presentation_pdf_de.append({
             "type": "html_report", 

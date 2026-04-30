@@ -67,7 +67,8 @@ def main():
         'description', 'history-evolution', 'strategic_vision', 'growth_roadmap',
         'rivalry', 'supplier-power', 'buyer-power', 'threat-of-entry', 'substitutes',
         'leadership-governance', 'risk-success-factors', 'investment_thesis',
-        'bull-case', 'bear-case', 'ai_agent_firmenhistorie'
+        'bull-case', 'bear-case', 'ai_agent_firmenhistorie',
+        'core-assets-capabilities', 'success-failure-factors'
     ]
     
     missing_pillars = []
@@ -96,6 +97,12 @@ def main():
 
 ### 2.1 Deep Institutional Heritage
 {format_json_to_md(data.get('ai_agent_firmenhistorie'))}
+
+### 2.2 Core Assets & Capabilities
+{data.get('core-assets-capabilities')}
+
+### 2.3 Success & Failure Factors
+{data.get('success-failure-factors')}
 """
 
     if chart_path and os.path.exists(chart_path):

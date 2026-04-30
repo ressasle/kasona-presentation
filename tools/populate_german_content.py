@@ -124,7 +124,9 @@ class GermanContentPopulator:
                     "supplier-power": "supplier-power_de",
                     "buyer-power": "buyer-power_de",
                     "threat-of-entry": "threat-of-entry_de",
-                    "substitutes": "substitutes_de"
+                    "substitutes": "substitutes_de",
+                    "core-assets-capabilities": "core-assets-capabilities_de",
+                    "success-failure-factors": "success-failure-factors_de"
                 }
                 
                 # Check for special case: executive summary (uses description)

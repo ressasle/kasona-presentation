@@ -75,6 +75,8 @@ def main():
     thesis = data.get('investment_thesis_de') or data.get('investment_thesis') or ""
     bull = data.get('bull-case_de') or data.get('bull-case') or ""
     bear = data.get('bear-case_de') or data.get('bear-case') or ""
+    core_assets = data.get('core-assets-capabilities_de') or data.get('core-assets-capabilities') or ""
+    success_factors = data.get('success-failure-factors_de') or data.get('success-failure-factors') or ""
 
     # Draft the German Markdown
     md_content = f"""# Institutionelle Präsentation: {company_name}
@@ -84,6 +86,12 @@ def main():
 
 ## 2. Historie und Strategische Entwicklung
 {history}
+
+### 2.1 Kernkompetenzen & Infrastruktur
+{core_assets}
+
+### 2.2 Faktoren für Erfolg & Misserfolg
+{success_factors}
 
 """
     if chart_path and os.path.exists(chart_path):
