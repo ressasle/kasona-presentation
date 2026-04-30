@@ -5,7 +5,7 @@ The old pipeline wrote History + Core Assets + Porter's + Risk/Success factors
 ALL into the `history-evolution` column. This script:
 
 1. Reads all rows where `core-assets-capabilities` IS NULL
-2. Uses Gemini to generate FRESH dedicated content for:
+2. Uses OpenRouter (Gemini Flash) to generate FRESH dedicated content for:
    - core-assets-capabilities (EN)
    - core-assets-capabilities_de (DE)
    - success-failure-factors (EN)
@@ -14,16 +14,16 @@ ALL into the `history-evolution` column. This script:
 
 Usage:
   # Backfill ALL companies with missing pillars:
-  python tools/backfill_split_pillars.py
+  python3 tools/backfill_split_pillars.py
 
   # Backfill a specific ticker:
-  python tools/backfill_split_pillars.py --ticker BERG-B.ST
+  python3 tools/backfill_split_pillars.py --ticker BERG-B.ST
 
   # Dry run (preview what would be updated):
-  python tools/backfill_split_pillars.py --dry-run
+  python3 tools/backfill_split_pillars.py --dry-run
 
   # Also rewrite history-evolution to remove mixed content:
-  python tools/backfill_split_pillars.py --rewrite-history
+  python3 tools/backfill_split_pillars.py --rewrite-history
 """
 
 import os
@@ -31,7 +31,7 @@ import sys
 import time
 import json
 import argparse
-import google.generativeai as genai
+import requests
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
@@ -39,28 +39,45 @@ from dotenv import load_dotenv
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-# ── Load .env ──
+# ── Load .env (try multiple locations) ──
 _tools_dir = os.path.dirname(os.path.abspath(__file__))
 _root_dir = os.path.dirname(_tools_dir)
-_env_path = os.path.join(_root_dir, ".env")
-load_dotenv(_env_path)
+
+_env_candidates = [
+    os.path.join(_root_dir, ".env"),
+    os.path.join(_root_dir, "..", "1.3_podcast-production", ".env"),
+    os.path.join(_root_dir, "..", "..", "1.3_podcast-production", ".env"),
+]
+for _env in _env_candidates:
+    if os.path.exists(_env):
+        print(f"  [ENV] Loading: {_env}")
+        load_dotenv(_env)
+
+_research_env = os.path.join(_root_dir, "..", "research-meeting-skill", "config", ".env")
+if os.path.exists(_research_env):
+    load_dotenv(_research_env, override=False)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-GEMINI_API_KEY = os.environ.get("GOOGLE_GEMINI_API_KEY")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_SERVICE_KEY")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
-if not all([SUPABASE_URL, SUPABASE_KEY, GEMINI_API_KEY]):
-    print(f"[FATAL] Missing env vars. URL={bool(SUPABASE_URL)}, KEY={bool(SUPABASE_KEY)}, GEMINI={bool(GEMINI_API_KEY)}")
+if not all([SUPABASE_URL, SUPABASE_KEY, OPENROUTER_API_KEY]):
+    print(f"[FATAL] Missing env vars. URL={bool(SUPABASE_URL)}, KEY={bool(SUPABASE_KEY)}, OPENROUTER={bool(OPENROUTER_API_KEY)}")
     sys.exit(1)
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-genai.configure(api_key=GEMINI_API_KEY)
+print(f"  [OK] Supabase: {SUPABASE_URL[:35]}...")
+print(f"  [OK] OpenRouter key loaded.")
 
-# ── Gemini Models ──
-GEMINI_MODEL = "models/gemini-2.0-flash"
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ── OpenRouter Models (reliable first) ──
+OPENROUTER_MODELS = [
+    "openai/gpt-4.1-mini",
+    "anthropic/claude-3.5-haiku",
+]
 
 # ── Prompts ──
-CORE_ASSETS_EN_PROMPT = """You are a Senior Equity Research Analyst. Analyze the core competencies and strategic assets of {company}.
+CORE_ASSETS_EN = """You are a Senior Equity Research Analyst. Analyze the core competencies and strategic assets of {company}.
 
 Structure (ENGLISH):
 1. Intellectual Property & Patents: Key patents, trade secrets, proprietary technology.
@@ -71,18 +88,18 @@ Structure (ENGLISH):
 
 Tone: Institutional, analytical. No marketing language. Start directly without introduction."""
 
-CORE_ASSETS_DE_PROMPT = """Du bist ein Senior Corporate Analyst. Erstelle eine detaillierte deutschsprachige Analyse der Kernkompetenzen und strategischen Assets von {company}.
+CORE_ASSETS_DE = """Du bist ein Senior Corporate Analyst. Erstelle eine detaillierte deutschsprachige Analyse der Kernkompetenzen und strategischen Assets von {company}.
 
 Struktur (DEUTSCH):
-1. Geistiges Eigentum & Patente: Schlüsselpatente, proprietäre Technologie.
+1. Geistiges Eigentum & Patente: Schluesselpatente, proprietaere Technologie.
 2. Physische Infrastruktur: Fertigung, Distribution, Logistiknetzwerke.
-3. Daten & Digitale Assets: Proprietäre Daten, Plattformen, digitale Ökosysteme.
-4. Operative Stärken: Prozessexzellenz, Lieferkette, Kostenvorteile.
-5. Humankapital: Schlüsseltalente, F&E-Kapazitäten, Organisationskultur.
+3. Daten & Digitale Assets: Proprietaere Daten, Plattformen, digitale Oekosysteme.
+4. Operative Staerken: Prozessexzellenz, Lieferkette, Kostenvorteile.
+5. Humankapital: Schluesseltalente, F&E-Kapazitaeten, Organisationskultur.
 
-Schreibe ausschließlich auf DEUTSCH. Keine Einleitungsfloskeln."""
+Schreibe ausschliesslich auf DEUTSCH. Keine Einleitungsfloskeln."""
 
-SUCCESS_FAILURE_EN_PROMPT = """You are a Senior Investment Analyst. Analyze the critical success and failure factors of {company} as investment KPIs.
+SUCCESS_FAILURE_EN = """You are a Senior Investment Analyst. Analyze the critical success and failure factors of {company} as investment KPIs.
 
 Structure (ENGLISH):
 1. Critical Success Drivers: What must go right for the investment thesis to work?
@@ -92,36 +109,30 @@ Structure (ENGLISH):
 
 Tone: Institutional, data-driven. Start directly without introduction."""
 
-SUCCESS_FAILURE_DE_PROMPT = """Du bist ein Senior Investment Analyst. Analysiere die kritischen Erfolgs- und Misserfolgsfaktoren von {company} als Investitions-KPIs.
+SUCCESS_FAILURE_DE = """Du bist ein Senior Investment Analyst. Analysiere die kritischen Erfolgs- und Misserfolgsfaktoren von {company} als Investitions-KPIs.
 
 Struktur (DEUTSCH):
 1. Kritische Erfolgstreiber: Was muss richtig laufen, damit die Investmentthese funktioniert?
-2. Zentrale Risikovariablen: Was könnte das Geschäftsmodell gefährden?
-3. Investitions-KPIs: Spezifische Kennzahlen, die Investoren überwachen sollten.
-4. Historische Mustererkennung: Vergangene Fälle, in denen ähnliche Faktoren relevant waren.
+2. Zentrale Risikovariablen: Was koennte das Geschaeftsmodell gefaehrden?
+3. Investitions-KPIs: Spezifische Kennzahlen, die Investoren ueberwachen sollten.
+4. Historische Mustererkennung: Vergangene Faelle, in denen aehnliche Faktoren relevant waren.
 
-Schreibe ausschließlich auf DEUTSCH. Keine Einleitungsfloskeln."""
+Schreibe ausschliesslich auf DEUTSCH. Keine Einleitungsfloskeln."""
 
-CLEAN_HISTORY_EN_PROMPT = """You are a Global Equity Research Director. Rewrite the following company history to contain ONLY the history and strategic evolution — remove any sections about Core Assets, Porter's Five Forces, Risk/Success Factors, or Investment KPIs.
+CLEAN_HISTORY_EN = """You are a Global Equity Research Director. Rewrite the following company history to contain ONLY the history and strategic evolution. Remove any sections about Core Assets, Porter's Five Forces, Risk/Success Factors, or Investment KPIs.
 
-Structure (ENGLISH):
-1. Founding & Origin Story: The genesis, founding vision, and early years.
-2. Strategic Pivots & M&A: Key transformational moments, acquisitions, divestitures.
-3. Growth Phases: Major expansion periods, market entries, geographic diversification.
-4. Modern Era: Current strategic positioning and evolution trajectory.
+Structure:
+1. Founding & Origin Story
+2. Strategic Pivots & M&A
+3. Growth Phases
+4. Modern Era
 
 Original content to clean:
 {content}
 
-Output ONLY the cleaned history. Start directly without introduction."""
+Output ONLY the cleaned history. Start directly."""
 
-CLEAN_HISTORY_DE_PROMPT = """Du bist ein Senior Corporate Historian. Bereinige die folgende Firmenhistorie, sodass NUR die Geschichte und strategische Evolution enthalten ist — entferne alle Abschnitte über Kernkompetenzen, Porter's Five Forces, Risiko-/Erfolgsfaktoren oder Investitions-KPIs.
-
-Struktur (DEUTSCH):
-1. Gründungsjahre & Vision: Die Anfänge und der Geist der Gründer.
-2. Formative Phasen: Krisen, Durchbrüche und kulturelle Prägung.
-3. Die moderne Ära: Transformation zum heutigen Unternehmen.
-4. Heritage-Zusammenfassung: Was macht den "Kern" des Unternehmens heute aus?
+CLEAN_HISTORY_DE = """Du bist ein Senior Corporate Historian. Bereinige die folgende Firmenhistorie, sodass NUR die Geschichte und strategische Evolution enthalten ist. Entferne alle Abschnitte ueber Kernkompetenzen, Porter's Five Forces, Risiko-/Erfolgsfaktoren oder Investitions-KPIs.
 
 Originalinhalt zum Bereinigen:
 {content}
@@ -129,242 +140,167 @@ Originalinhalt zum Bereinigen:
 Gib NUR die bereinigte Firmenhistorie aus. Keine Einleitungsfloskeln."""
 
 
-def generate_with_retry(prompt: str, max_retries: int = 10) -> str:
-    """Generate content with retry logic for rate limits."""
-    model = genai.GenerativeModel(model_name=GEMINI_MODEL)
-    wait = 30
-    for attempt in range(max_retries):
-        try:
-            response = model.generate_content(prompt)
-            return response.text.strip()
-        except Exception as exc:
-            err = str(exc)
-            if "429" in err or "quota" in err.lower():
-                print(f"      [429] Rate limited. Waiting {wait}s (attempt {attempt+1}/{max_retries})...")
-                time.sleep(wait)
-                wait = min(wait + 30, 180)
-                continue
-            if attempt < max_retries - 1:
-                time.sleep(5)
-            else:
-                return f"[AI_ERROR] {exc}"
-    return "[AI_ERROR] Failed after all retries."
+def generate(prompt, max_retries=3):
+    """Generate content via OpenRouter with model fallback."""
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://kasona.ai",
+        "X-Title": "Kasona Pillar Backfill"
+    }
+    for model in OPENROUTER_MODELS:
+        wait = 10
+        for attempt in range(max_retries):
+            try:
+                r = requests.post(url, headers=headers, json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.2,
+                }, timeout=120)
+                if r.status_code == 429:
+                    print(f"      [429] {model} — waiting {wait}s ({attempt+1}/{max_retries})")
+                    time.sleep(wait)
+                    wait = min(wait + 15, 60)
+                    continue
+                r.raise_for_status()
+                return r.json()["choices"][0]["message"]["content"].strip()
+            except Exception as e:
+                if "404" in str(e):
+                    break
+                print(f"      [ERR] {model}: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(5)
+                else:
+                    break
+        print(f"      [FALLBACK] next model...")
+    return "[AI_ERROR] All models exhausted."
 
 
-def backfill_ticker(row: dict, rewrite_history: bool = False, dry_run: bool = False) -> dict:
-    """Generate and backfill missing pillars for one company."""
+def backfill_ticker(row, rewrite_history=False, dry_run=False):
     ticker = row["ticker_eod"]
     company = row.get("company_name") or ticker
-    
-    print(f"\n{'='*60}")
-    print(f"  [{ticker}] {company}")
-    print(f"{'='*60}")
-    
-    update_payload = {}
-    
-    # Check what's missing
-    has_core_assets = row.get("core-assets-capabilities") and len(str(row["core-assets-capabilities"]).strip()) > 20
-    has_core_assets_de = row.get("core-assets-capabilities_de") and len(str(row["core-assets-capabilities_de"]).strip()) > 20
-    has_success = row.get("success-failure-factors") and len(str(row["success-failure-factors"]).strip()) > 20
-    has_success_de = row.get("success-failure-factors_de") and len(str(row["success-failure-factors_de"]).strip()) > 20
-    
-    # Generate Core Assets EN
-    if not has_core_assets:
-        print(f"  [GEN] Core Assets & Capabilities (EN)...")
-        if not dry_run:
-            result = generate_with_retry(CORE_ASSETS_EN_PROMPT.format(company=company))
-            if not result.startswith("[AI_ERROR]"):
-                update_payload["core-assets-capabilities"] = result
-                print(f"  [OK] Core Assets EN: {len(result)} chars")
-            else:
-                print(f"  [FAIL] {result}")
+    print(f"\n{'='*60}\n  [{ticker}] {company}\n{'='*60}")
+
+    payload = {}
+    checks = {
+        "core-assets-capabilities": (CORE_ASSETS_EN, "Core Assets EN"),
+        "core-assets-capabilities_de": (CORE_ASSETS_DE, "Core Assets DE"),
+        "success-failure-factors": (SUCCESS_FAILURE_EN, "Success/Failure EN"),
+        "success-failure-factors_de": (SUCCESS_FAILURE_DE, "Success/Failure DE"),
+    }
+
+    for col, (prompt_tpl, label) in checks.items():
+        existing = row.get(col)
+        if existing and len(str(existing).strip()) > 20:
+            print(f"  [SKIP] {label} already exists ({len(str(existing))} chars)")
+            continue
+        print(f"  [GEN] {label}...")
+        if dry_run:
+            print(f"  [DRY] Would generate {label}")
+            continue
+        result = generate(prompt_tpl.format(company=company))
+        if not result.startswith("[AI_ERROR]"):
+            payload[col] = result
+            print(f"  [OK] {label}: {len(result)} chars")
         else:
-            print(f"  [DRY] Would generate Core Assets EN")
-    else:
-        print(f"  [SKIP] Core Assets EN already exists ({len(str(row['core-assets-capabilities']))} chars)")
-    
-    # Generate Core Assets DE
-    if not has_core_assets_de:
-        print(f"  [GEN] Core Assets & Capabilities (DE)...")
-        if not dry_run:
-            result = generate_with_retry(CORE_ASSETS_DE_PROMPT.format(company=company))
-            if not result.startswith("[AI_ERROR]"):
-                update_payload["core-assets-capabilities_de"] = result
-                print(f"  [OK] Core Assets DE: {len(result)} chars")
-            else:
-                print(f"  [FAIL] {result}")
-        else:
-            print(f"  [DRY] Would generate Core Assets DE")
-    else:
-        print(f"  [SKIP] Core Assets DE already exists")
-    
-    # Generate Success/Failure EN
-    if not has_success:
-        print(f"  [GEN] Success/Failure Factors (EN)...")
-        if not dry_run:
-            result = generate_with_retry(SUCCESS_FAILURE_EN_PROMPT.format(company=company))
-            if not result.startswith("[AI_ERROR]"):
-                update_payload["success-failure-factors"] = result
-                print(f"  [OK] Success/Failure EN: {len(result)} chars")
-            else:
-                print(f"  [FAIL] {result}")
-        else:
-            print(f"  [DRY] Would generate Success/Failure EN")
-    else:
-        print(f"  [SKIP] Success/Failure EN already exists ({len(str(row['success-failure-factors']))} chars)")
-    
-    # Generate Success/Failure DE
-    if not has_success_de:
-        print(f"  [GEN] Success/Failure Factors (DE)...")
-        if not dry_run:
-            result = generate_with_retry(SUCCESS_FAILURE_DE_PROMPT.format(company=company))
-            if not result.startswith("[AI_ERROR]"):
-                update_payload["success-failure-factors_de"] = result
-                print(f"  [OK] Success/Failure DE: {len(result)} chars")
-            else:
-                print(f"  [FAIL] {result}")
-        else:
-            print(f"  [DRY] Would generate Success/Failure DE")
-    else:
-        print(f"  [SKIP] Success/Failure DE already exists")
-    
-    # Optionally rewrite history to remove mixed content
+            print(f"  [FAIL] {result}")
+
     if rewrite_history:
-        history_en = row.get("history-evolution") or ""
-        history_de = row.get("history-evolution_de") or ""
-        
-        if history_en and len(history_en) > 200:
-            # Check if history contains mixed content (heuristic: look for Porter's / Risk / Core Assets headings)
-            mixed_markers = ["porter", "five forces", "core assets", "kernkompetenzen", "risk", "risiko", "erfolgsfaktoren", "success", "failure"]
-            is_mixed = any(m in history_en.lower() for m in mixed_markers)
-            
-            if is_mixed:
-                print(f"  [REWRITE] History EN contains mixed content — cleaning...")
-                if not dry_run:
-                    clean = generate_with_retry(CLEAN_HISTORY_EN_PROMPT.format(content=history_en[:6000]))
-                    if not clean.startswith("[AI_ERROR]"):
-                        update_payload["history-evolution"] = clean
-                        print(f"  [OK] Clean History EN: {len(clean)} chars (was {len(history_en)})")
-                else:
-                    print(f"  [DRY] Would clean History EN ({len(history_en)} chars)")
-            else:
-                print(f"  [SKIP] History EN looks clean already")
-        
-        if history_de and len(history_de) > 200:
-            mixed_markers_de = ["porter", "five forces", "kernkompetenzen", "risiko", "erfolgsfaktoren", "infrastruktur", "wettbewerb"]
-            is_mixed_de = any(m in history_de.lower() for m in mixed_markers_de)
-            
-            if is_mixed_de:
-                print(f"  [REWRITE] History DE contains mixed content — cleaning...")
-                if not dry_run:
-                    clean_de = generate_with_retry(CLEAN_HISTORY_DE_PROMPT.format(content=history_de[:6000]))
-                    if not clean_de.startswith("[AI_ERROR]"):
-                        update_payload["history-evolution_de"] = clean_de
-                        print(f"  [OK] Clean History DE: {len(clean_de)} chars (was {len(history_de)})")
-                else:
-                    print(f"  [DRY] Would clean History DE ({len(history_de)} chars)")
-            else:
-                print(f"  [SKIP] History DE looks clean already")
-    
-    return update_payload
+        for col, prompt_tpl, lang_label in [
+            ("history-evolution", CLEAN_HISTORY_EN, "History EN"),
+            ("history-evolution_de", CLEAN_HISTORY_DE, "History DE"),
+        ]:
+            content = row.get(col) or ""
+            if len(content) < 200:
+                continue
+            markers = ["porter", "five forces", "core assets", "kernkompetenzen", "risiko", "erfolgsfaktoren", "success factors"]
+            if not any(m in content.lower() for m in markers):
+                print(f"  [SKIP] {lang_label} looks clean")
+                continue
+            print(f"  [REWRITE] {lang_label} — mixed content detected")
+            if dry_run:
+                print(f"  [DRY] Would clean {lang_label}")
+                continue
+            clean = generate(prompt_tpl.format(content=content[:6000]))
+            if not clean.startswith("[AI_ERROR]"):
+                payload[col] = clean
+                print(f"  [OK] {lang_label}: {len(clean)} chars (was {len(content)})")
+
+    return payload
 
 
 def main():
     parser = argparse.ArgumentParser(description="Backfill core-assets and success-failure columns")
-    parser.add_argument("--ticker", type=str, help="Process only this ticker (e.g. BERG-B.ST)")
-    parser.add_argument("--dry-run", action="store_true", help="Preview what would be updated without making changes")
-    parser.add_argument("--rewrite-history", action="store_true", help="Also clean mixed content out of history-evolution")
-    parser.add_argument("--limit", type=int, default=0, help="Limit number of tickers to process (0 = all)")
+    parser.add_argument("--ticker", type=str, help="Process only this ticker")
+    parser.add_argument("--dry-run", action="store_true", help="Preview without making changes")
+    parser.add_argument("--rewrite-history", action="store_true", help="Clean mixed content from history-evolution")
+    parser.add_argument("--limit", type=int, default=0, help="Limit number of tickers (0 = all)")
     args = parser.parse_args()
-    
+
     print("=" * 60)
-    print("  Kasona Pillar Backfill — Retroactive Column Splitter")
+    print("  Kasona Pillar Backfill (OpenRouter)")
     print("=" * 60)
     if args.dry_run:
-        print("  MODE: DRY RUN (no changes will be made)")
+        print("  MODE: DRY RUN")
     if args.rewrite_history:
-        print("  MODE: Will also rewrite mixed history-evolution content")
+        print("  MODE: REWRITE HISTORY")
     print()
-    
-    # Fetch all rows
+
     select_cols = "ticker_eod,company_name,history-evolution,history-evolution_de,core-assets-capabilities,core-assets-capabilities_de,success-failure-factors,success-failure-factors_de"
-    
     query = supabase.table("company_presentation").select(select_cols)
-    
     if args.ticker:
         query = query.eq("ticker_eod", args.ticker)
-    
-    res = query.execute()
-    rows = res.data if res.data else []
-    
+
+    rows = (query.execute().data or [])
     if not rows:
         print("[INFO] No rows found.")
         return
-    
-    # Filter to rows that need work
+
     targets = []
     for row in rows:
         needs_core = not (row.get("core-assets-capabilities") and len(str(row["core-assets-capabilities"]).strip()) > 20)
         needs_success = not (row.get("success-failure-factors") and len(str(row["success-failure-factors"]).strip()) > 20)
-        
-        if needs_core or needs_success:
+        if needs_core or needs_success or args.rewrite_history:
             targets.append(row)
-        elif args.rewrite_history:
-            # Even if pillars exist, check if history needs cleaning
-            targets.append(row)
-    
-    print(f"[INFO] Found {len(targets)} tickers requiring backfill (out of {len(rows)} total).\n")
-    
+
+    print(f"[INFO] {len(targets)} tickers to process (of {len(rows)} total).\n")
     if args.limit > 0:
         targets = targets[:args.limit]
-        print(f"[INFO] Limited to {args.limit} tickers.\n")
-    
+
     stats = {"updated": 0, "skipped": 0, "failed": 0}
-    
+
     for i, row in enumerate(targets, 1):
         ticker = row["ticker_eod"]
-        print(f"\n[{i}/{len(targets)}] Processing {ticker}...")
-        
+        print(f"\n[{i}/{len(targets)}] {ticker}")
         try:
-            payload = backfill_ticker(row, rewrite_history=args.rewrite_history, dry_run=args.dry_run)
-            
-            if payload and not args.dry_run:
-                print(f"  [SAVE] Writing {len(payload)} columns to Supabase...")
+            p = backfill_ticker(row, rewrite_history=args.rewrite_history, dry_run=args.dry_run)
+            if p and not args.dry_run:
+                print(f"  [SAVE] Writing {len(p)} columns...")
                 try:
-                    res = supabase.table("company_presentation").update(payload).eq("ticker_eod", ticker).execute()
-                    if hasattr(res, 'data') and res.data:
-                        print(f"  [OK] ✅ {ticker} updated successfully.")
+                    res = supabase.table("company_presentation").update(p).eq("ticker_eod", ticker).execute()
+                    if res.data:
+                        print(f"  [OK] {ticker} updated.")
                         stats["updated"] += 1
                     else:
-                        print(f"  [WARN] Supabase returned no data for {ticker}.")
                         stats["failed"] += 1
                 except Exception as e:
-                    print(f"  [ERR] Supabase update failed: {e}")
+                    print(f"  [ERR] {e}")
                     stats["failed"] += 1
-            elif payload and args.dry_run:
-                print(f"  [DRY] Would update columns: {list(payload.keys())}")
+            elif p and args.dry_run:
+                print(f"  [DRY] Would update: {list(p.keys())}")
                 stats["updated"] += 1
             else:
-                print(f"  [SKIP] Nothing to update for {ticker}.")
                 stats["skipped"] += 1
-            
-            # Cooldown between tickers
             if i < len(targets):
-                cooldown = 15
-                print(f"  [COOL] Waiting {cooldown}s...")
-                time.sleep(cooldown)
-                
+                time.sleep(5)
         except Exception as e:
             import traceback
             traceback.print_exc()
-            print(f"  [FATAL] Error processing {ticker}: {e}")
             stats["failed"] += 1
-            continue
-    
-    # Summary
+
     print(f"\n{'='*60}")
-    print(f"  BACKFILL COMPLETE")
-    print(f"  Updated: {stats['updated']} | Skipped: {stats['skipped']} | Failed: {stats['failed']}")
+    print(f"  DONE — Updated: {stats['updated']} | Skipped: {stats['skipped']} | Failed: {stats['failed']}")
     print(f"{'='*60}")
 
 
