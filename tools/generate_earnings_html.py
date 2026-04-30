@@ -512,8 +512,8 @@ def build_html(
 
     # Fallbacks from MD content
     if impact_score is None:
-        m = re.search(r"Impact Score[:\s]+(\d+)\s*/\s*10", md_text, re.IGNORECASE)
-        impact_score = int(m.group(1)) if m else 9
+        m = re.search(r"Impact Score[:\s]+(\d+)\s*/\s*(?:100|10)", md_text, re.IGNORECASE)
+        impact_score = int(m.group(1)) if m else 75
     if not executive_summary:
         exec_section = sections.get("1. Executive Summary", "")
         executive_summary = exec_section[:600].replace("\n", " ").strip() + "…" if exec_section else ""
@@ -696,10 +696,9 @@ def build_html(
   </div>
 
   <div class="card">
-    <div class="card-title">Signal</div>
-    <div style="text-align:center; padding: 10px 0;">{signal_badge(recommendation)}</div>
-    <p class="md-p" style="margin-top: 10px; font-size: 12px; color: var(--text-muted);">
-      Guidance shock dominates. Watch Q1 2026 results for La Prairie trajectory.
+    <div class="card-title">Guidance Signal</div>
+    <p class="md-p" style="font-size: 12px; color: var(--text-muted);">
+      {guidance_signal if guidance_signal else 'N/A'}
     </p>
   </div>
 
@@ -786,12 +785,11 @@ def build_html(
     <div class="card-title">Earnings Impact Score</div>
     <div class="impact-score-row">
       <div>
-        <div class="score-big">{impact_score}<span class="score-denom">/10</span></div>
+        <div class="score-big">{impact_score}<span class="score-denom">/100</span></div>
         <div class="score-label">Earnings Impact</div>
       </div>
       <div>
-        <div style="margin-bottom:6px">{signal_badge(recommendation)}</div>
-        <div class="score-desc">{executive_summary[:300] if executive_summary else "Guidance shock dominates the investment case. Operating results are secondary."}</div>
+        <div class="score-desc">{executive_summary[:300] if executive_summary else ""}</div>
       </div>
     </div>
     {metric_tiles}

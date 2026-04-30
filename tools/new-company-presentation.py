@@ -311,9 +311,8 @@ Zwingendes Ausführungsprotokoll (Deep Research Modus):
 
 Struktur der Analyse (ENGLISCH):
 1. History & Evolution: Chronological milestones with strategic pivots (Pivots, M&A).
-2. Core Assets & Capabilities: Patents, infrastructure, data, operational strengths.
-3. Porter's Five Forces: Competitive landscape analysis.
-4. Risk/Success Factors: Critical investment variables.
+
+IMPORTANT: Only write about History & Evolution. Do NOT include Core Assets, Porter's Five Forces, or Risk/Success Factors — those are generated separately.
 
 Starte direkt mit dem ersten Analysepunkt ohne einleitende Floskeln."""
 
@@ -325,6 +324,8 @@ Du gibst ausschließlich ein valides JSON-Objekt zurück mit folgenden Schlüsse
 - buyer-power: (Porter's Five Forces: Verhandlungsmacht der Kunden)
 - threat-of-entry: (Porter's Five Forces: Bedrohung durch neue Wettbewerber)
 - substitutes: (Porter's Five Forces: Bedrohung durch Ersatzprodukte)
+- core-assets-capabilities: (Kernkompetenzen, Patente, Infrastruktur, operative Stärken des Unternehmens)
+- success-failure-factors: (Kritische Investitions-KPIs, Erfolgsfaktoren und Risikofaktoren)
 - risk-success-factors: (Zusammenfassung der kritischen Risiko- und Erfolgsfaktoren)
 - bull-case: (Das optimistische Investment-Szenario)
 - bear-case: (Das pessimistische Investment-Szenario)
@@ -843,6 +844,8 @@ def sync_to_supabase(
         "buyer-power":             data.get("buyer-power", ""),
         "threat-of-entry":         data.get("threat-of-entry", ""),
         "substitutes":             data.get("substitutes", ""),
+        "core-assets-capabilities": data.get("core-assets-capabilities", ""),
+        "success-failure-factors":  data.get("success-failure-factors", ""),
         "risk-success-factors":    data.get("risk-success-factors", ""),
         "bull-case":               data.get("bull-case", ""),
         "bear-case":               data.get("bear-case", ""),
@@ -857,6 +860,8 @@ def sync_to_supabase(
         "buyer-power_de":           data.get("buyer-power_de", ""),
         "threat-of-entry_de":       data.get("threat-of-entry_de", ""),
         "substitutes_de":           data.get("substitutes_de", ""),
+        "core-assets-capabilities_de": data.get("core-assets-capabilities_de", ""),
+        "success-failure-factors_de":  data.get("success-failure-factors_de", ""),
         "risk-success-factors_de":  data.get("risk-success-factors_de", ""),
         "bull-case_de":             data.get("bull-case_de", ""),
         "bear-case_de":             data.get("bear-case_de", ""),
