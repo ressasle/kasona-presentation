@@ -8,7 +8,7 @@ The institutional pipeline is currently operating under a strict **~1 RPM (Reque
 ## Implemented Mitigation
 1. **Batched Synthesis**: We have reduced API pressure by 80% by consolidating 7-14 individual data pillars into a single batched request.
 2. **Exponential Backoff**: The scripts now include a 45s-180s cooldown between retries to avoid "Blacklisting."
-3. **Model Rotation**: We successfully rotate between `gemini-2.0-flash`, `gemini-flash-latest`, and `gemini-pro-latest` to find available windows.
+3. **Model Rotation**: We successfully rotate between `gemini-3-flash-preview`, `gemini-flash-latest`, and `gemini-pro-latest` to find available windows.
 
 ## Recommendation
 To achieve "Enterprise Velocity" for the full 99-SA portfolio, we recommend:

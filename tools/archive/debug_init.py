@@ -28,7 +28,7 @@ print("10. Gemini configured.")
 
 print("11. Testing Generation...")
 try:
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel("gemini-3-flash-preview")
     resp = model.generate_content("Hello")
     print(f"12. Gemini SUCCESS: {resp.text}")
 except Exception as e:

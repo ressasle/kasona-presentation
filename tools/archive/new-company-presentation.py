@@ -56,7 +56,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 # ── Load .env ──────────────────────────────────────────────────────────
 print("  [DEBUG] Loading .env...", flush=True)
 _tools_dir = os.path.dirname(os.path.abspath(__file__))
-_root_dir = os.path.dirname(_tools_dir)
+_root_dir = os.path.dirname(os.path.dirname(_tools_dir))
 _env_path = os.path.join(_root_dir, ".env")
 print(f"  [DEBUG] Env path: {_env_path}", flush=True)
 load_dotenv(_env_path)
@@ -663,11 +663,35 @@ def scrape_linkedin_profiles(names: list[str], apify_key: str) -> list[dict]:
     return profiles
 
 
+def normalize_ticker(ticker: str, company_name: str, api_token: str) -> str:
+    """Ensure the ticker is in a format EODHD likes (e.g. TICKER.EXCHANGE).
+    Defaults to .US if no exchange is provided.
+    """
+    if not ticker: return ""
+    ticker = ticker.upper().strip()
+    if "." in ticker:
+        return ticker
+    
+    # Try a search if possible, else default to .US
+    try:
+        url = f"https://eodhd.com/api/search/{ticker}?api_token={api_token}&fmt=json"
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            results = r.json()
+            for res in results:
+                if res.get("Code") == ticker:
+                    return f"{res['Code']}.{res['Exchange']}"
+    except:
+        pass
+    
+    return f"{ticker}.US"
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Phase 5 — EODHD Fundamentals enrichment
 # ═══════════════════════════════════════════════════════════════════════
 def fetch_eodhd_fundamentals(ticker_eod: str, eodhd_key: str) -> dict:
-    """Fetch General + Officers sections from EODHD Fundamentals API."""
+    """Fetch General + Officers + Highlights sections from EODHD Fundamentals API."""
     if not ticker_eod or not eodhd_key:
         return {}
     url = (
@@ -684,37 +708,38 @@ def fetch_eodhd_fundamentals(ticker_eod: str, eodhd_key: str) -> dict:
         r.raise_for_status()
         data = r.json()
         gen  = data.get("General", {})
-        officers = data.get("General", {}).get("Officers", {})
-        # Build officer list (similar to previous enrichment work)
+        high = data.get("Highlights", {})
+        val  = data.get("Valuation", {})
+        officers = gen.get("Officers", {})
+
+        # Build officer list
         officer_lines = []
         for key in sorted(officers.keys()):
             o = officers[key]
             name  = o.get("Name", "")
             title = o.get("Title", "")
-            birth = o.get("YearBorn", "")
             if name:
-                line = f"{name} ({title}" + (f", Born: {birth}" if birth else "") + ")"
-                officer_lines.append(line)
-
+                officer_lines.append(f"{name} ({title})")
+        
         return {
-            "company_name":    gen.get("Name", ""),
-            "description":     gen.get("Description", ""),
-            "sector":          gen.get("Sector", ""),
-            "industry":        gen.get("Industry", ""),
-            "country":         gen.get("CountryName", ""),
-            "website":         gen.get("WebURL", ""),
-            "isin":            gen.get("ISIN", ""),
-            "officers_text":   "\n".join(officer_lines),
+            "company_name": gen.get("Name", ""),
+            "description":  gen.get("Description", ""),
+            "sector":       gen.get("Sector", ""),
+            "industry":     gen.get("Industry", ""),
+            "employees":    gen.get("FullTimeEmployees", ""),
+            "currency":     gen.get("CurrencyCode", "USD"),
+            "market_cap":   high.get("MarketCapitalization"),
+            "ebitda":       high.get("EBITDA"),
+            "pe_ratio":     high.get("PERatio"),
+            "div_yield":    high.get("DividendYield"),
+            "officers_text": "\n".join(officer_lines) if officer_lines else "",
+            "ticker":       ticker_eod
         }
     except Exception as exc:
-        print(f"  [!] EODHD error: {exc}")
+        print(f"    [EODHD] Error: {exc}")
         return {}
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# Phase 6 — L4 HTML Report Generator
-# Mirrors: "L4_Report Generator HTML1" Code node
-# ═══════════════════════════════════════════════════════════════════════
 def generate_l4_html_report(
     company_name: str,
     leadership_analysis: str,
@@ -723,148 +748,436 @@ def generate_l4_html_report(
     podcasts: list[dict],
     linkedin_profiles: list[dict],
     eodhd_data: dict,
+    language: str = "en"
 ) -> str:
-    """Build the branded HTML report.
-    Mirrors the 'L4_Report Generator HTML1' JavaScript Code node.
-    Outputs: html_content (str)
-    """
+    """Build a premium institutional HTML report with modern CSS and dual-language support."""
     from datetime import date
+    import re
 
     def _md_to_html(text: str) -> str:
-        """Minimal Markdown → HTML conversion (mirrors the n8n JS formatter)."""
-        import re
-        text = re.sub(r"### (.*?)(?:\n|$)", r"<h2>\1</h2>", text)
+        if not text: return ""
+        # Headlines
+        text = re.sub(r"### (.*?)(?:\n|$)", r"<h3>\1</h3>", text)
+        text = re.sub(r"## (.*?)(?:\n|$)", r"<h2>\1</h2>", text)
+        # Bold
         text = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", text)
+        # Lists
         text = re.sub(r"^[*-] (.*?)(?:\n|$)", r"<li>\1</li>", text, flags=re.MULTILINE)
-        text = re.sub(r"^#{1,2} (.*?)(?:\n|$)", r"<h2>\1</h2>", text, flags=re.MULTILINE)
-        text = text.replace("\n", "<br>")
-        return text
+        # Paragraphs
+        lines = text.split('\n')
+        processed_lines = []
+        in_list = False
+        for line in lines:
+            if line.strip().startswith('<li>'):
+                if not in_list:
+                    processed_lines.append('<ul>')
+                    in_list = True
+                processed_lines.append(line)
+            else:
+                if in_list:
+                    processed_lines.append('</ul>')
+                    in_list = False
+                if line.strip():
+                    processed_lines.append(f"<p>{line}</p>")
+        if in_list: processed_lines.append('</ul>')
+        return "\n".join(processed_lines)
 
-    today        = date.today().strftime("%d.%m.%Y")
-    ceo_titles   = [v["title"] for v in ceo_interviews[:3]]
-    pod_titles   = [v["title"] for v in podcasts[:3]]
-    ceo_excerpt  = ceo_interviews[0]["transcript"][:2000] if ceo_interviews else "(No transcript available)"
+    def _fmt_num(val):
+        if val is None or val == "": return "N/A"
+        try:
+            f = float(val)
+            if f >= 1_000_000_000_000: return f"${f/1_000_000_000_000:.2f}T"
+            if f >= 1_000_000_000: return f"${f/1_000_000_000:.2f}B"
+            if f >= 1_000_000: return f"${f/1_000_000:.2f}M"
+            return f"${f:,.0f}"
+        except: return str(val)
 
-    li_block = ""
-    for p in linkedin_profiles[:5]:
-        li_block += (
-            f'<div class="profile">'
-            f'<strong>{p.get("name","")}</strong> — {p.get("headline","")}'
-            f'<br><a href="{p.get("url","")}" target="_blank">{p.get("url","")}</a>'
-            f"</div>"
-        )
+    # Localization dictionary
+    i18n = {
+        "en": {
+            "report_title": "Institutional Research Report",
+            "date_label": "Analysis Date",
+            "overview": "Company Overview",
+            "leadership": "Leadership & Governance Audit",
+            "history": "Strategic Evolution & History",
+            "intelligence": "Primary Intelligence",
+            "ceo_insights": "CEO Interview Key Insights",
+            "network": "Executive Network Analysis",
+            "footer": "Confidential Institutional Research | Generated by Kasona AI",
+            "view_profile": "View Profile",
+            "watch_video": "Watch Video",
+            "key_stats": "Key Statistics",
+            "executives": "Executive Management Team",
+            "tech_chart": "Technical Market Analysis",
+            "mkt_cap": "Market Cap",
+            "sector": "Sector",
+            "industry": "Industry",
+            "pe_ratio": "P/E Ratio",
+            "div_yield": "Div Yield",
+        },
+        "de": {
+            "report_title": "Institutioneller Analysebericht",
+            "date_label": "Analyse-Datum",
+            "overview": "Unternehmensüberblick",
+            "leadership": "Führung & Governance Audit",
+            "history": "Strategische Entwicklung & Historie",
+            "intelligence": "Primärquellen & Intelligence",
+            "ceo_insights": "CEO-Interview Kernaussagen",
+            "network": "Management-Netzwerkanalyse",
+            "footer": "Vertrauliche institutionelle Analyse | Erstellt von Kasona AI",
+            "view_profile": "Profil ansehen",
+            "watch_video": "Video ansehen",
+            "key_stats": "Wichtige Kennzahlen",
+            "executives": "Management-Team",
+            "tech_chart": "Technische Marktanalyse",
+            "mkt_cap": "Marktkapitalisierung",
+            "sector": "Sektor",
+            "industry": "Industrie",
+            "pe_ratio": "KGV (P/E)",
+            "div_yield": "Dividendenrendite",
+        }
+    }
+    lang = language.lower() if language.lower() in i18n else "en"
+    t = i18n[lang]
+    
+    today = date.today().strftime("%B %d, %Y" if lang == "en" else "%d. %B %Y")
+    
+    # Technical Chart URL (ChartImg)
+    ticker = eodhd_data.get("ticker", "").split(".")[0]
+    chart_url = f"https://api.chart-img.com/v1/tradingview/advanced-chart?symbol={ticker}&interval=1D&theme=light&width=1000&height=500"
+    
+    # Build LinkedIn Cards
+    li_cards = ""
+    for p in linkedin_profiles[:6]:
+        li_cards += f"""
+        <div class="profile-card">
+            <div class="profile-header">
+                <div class="profile-avatar">{p.get('name', 'N/A')[0]}</div>
+                <div class="profile-meta">
+                    <h4>{p.get('name', 'N/A')}</h4>
+                    <p>{p.get('headline', 'Executive')}</p>
+                </div>
+            </div>
+            <a href="{p.get('url', '#')}" class="btn-secondary" target="_blank">{t['view_profile']} &rarr;</a>
+        </div>"""
 
-    yt_block = ""
+    # Build Executive List
+    exec_list = ""
+    officer_text = eodhd_data.get("officers_text", "")
+    if officer_text:
+        for line in officer_text.split("\n")[:8]:
+            exec_list += f"<li>{line}</li>"
+
+    # Build Video/Podcast Items
+    yt_cards = ""
     for v in (ceo_interviews + podcasts)[:6]:
-        yt_block += (
-            f'<li><a href="{v["url"]}" target="_blank">{v["title"]}</a> '
-            f'({v.get("channel","")}, {v.get("publishedAt","")[:10]})</li>'
-        )
+        yt_cards += f"""
+        <div class="video-card">
+            <div class="video-info">
+                <h4>{v.get('title', 'Primary Source')[:60]}...</h4>
+                <p>{v.get('url', '')}</p>
+            </div>
+            <a href="{v.get('url', '#')}" class="btn-accent" target="_blank">{t['watch_video']}</a>
+        </div>"""
 
-    body_html = (
-        f"<h2>Leadership &amp; Governance Audit</h2>"
-        f"{_md_to_html(leadership_analysis)}"
-        f"<h2>Company History &amp; Strategic Analysis</h2>"
-        f"{_md_to_html(history_analysis)}"
-        f"<h2>YouTube Sources</h2><ul>{yt_block}</ul>"
-        f"<h2>CEO Interview Excerpt</h2>"
-        f"<blockquote>{ceo_excerpt[:1500]}</blockquote>"
-        f"<h2>Executive LinkedIn Profiles</h2>{li_block}"
-    )
-
-    if eodhd_data.get("description"):
-        body_html += (
-            f"<h2>Company Overview (EODHD)</h2>"
-            f"<p>{eodhd_data['description'][:1000]}</p>"
-        )
+    ceo_excerpt = ceo_interviews[0].get("transcript", "")[:1200] if ceo_interviews else ""
 
     html = f"""<!DOCTYPE html>
-<html lang="de">
+<html lang="{lang}">
 <head>
-<meta charset="UTF-8">
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap');
-  body {{
-    font-family: 'Montserrat', sans-serif;
-    color: #333;
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 40px;
-    font-size: 14px;
-    line-height: 1.7;
-  }}
-  .header-grid {{
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 40px;
-    border-bottom: 3px solid #ff9627;
-    padding-bottom: 20px;
-  }}
-  .logo img {{ max-width: 180px; }}
-  h2 {{
-    color: #ff9627;
-    border-left: 4px solid #ff9627;
-    padding-left: 10px;
-    margin-top: 30px;
-    text-transform: uppercase;
-    font-size: 15px;
-  }}
-  strong {{ color: #000; }}
-  blockquote {{
-    background: #f9f9f9;
-    border-left: 4px solid #ff9627;
-    margin: 16px 0;
-    padding: 12px 16px;
-    font-style: italic;
-    color: #555;
-  }}
-  .profile {{
-    background: #f4f4f4;
-    border-radius: 6px;
-    padding: 10px 14px;
-    margin-bottom: 10px;
-  }}
-  ul {{ padding-left: 20px; }}
-  li {{ margin-bottom: 6px; }}
-  a {{ color: #ff9627; text-decoration: none; }}
-  a:hover {{ text-decoration: underline; }}
-  .footer {{
-    margin-top: 60px;
-    font-size: 10px;
-    color: #999;
-    text-align: center;
-    border-top: 1px solid #eee;
-    padding-top: 20px;
-  }}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{company_name} - {t['report_title']}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {{
+            --primary: #0f172a;
+            --accent: #ff9627;
+            --accent-soft: rgba(255, 150, 39, 0.1);
+            --bg: #f8fafc;
+            --card-bg: rgba(255, 255, 255, 0.9);
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }}
+
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{ 
+            font-family: 'Inter', sans-serif; 
+            background-color: var(--bg); 
+            color: var(--text-main); 
+            line-height: 1.6;
+            padding: 2rem;
+        }}
+
+        .container {{ max-width: 1100px; margin: 0 auto; }}
+
+        header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 2rem;
+            border-bottom: 2px solid var(--primary);
+            margin-bottom: 2rem;
+        }}
+
+        .brand h1 {{ 
+            font-family: 'Outfit', sans-serif; 
+            font-size: 2.8rem; 
+            color: var(--primary); 
+            letter-spacing: -0.02em;
+            line-height: 1.1;
+        }}
+        .brand p {{ color: var(--text-muted); font-weight: 500; margin-top: 0.5rem; }}
+
+        .logo img {{ height: 60px; }}
+
+        .stats-bar {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1.5rem;
+            background: var(--primary);
+            color: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            margin-bottom: 3rem;
+            box-shadow: var(--shadow);
+        }}
+        .stat-item h5 {{ font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.7; margin-bottom: 0.25rem; }}
+        .stat-item p {{ font-family: 'Outfit', sans-serif; font-size: 1.1rem; font-weight: 600; margin: 0; }}
+
+        section {{ margin-bottom: 4rem; }}
+
+        h2 {{ 
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.6rem;
+            color: var(--primary);
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.5rem;
+        }}
+        h2::before {{
+            content: "";
+            width: 8px;
+            height: 1.6rem;
+            background: var(--accent);
+            border-radius: 4px;
+        }}
+
+        h3 {{ font-size: 1.1rem; margin-top: 1.5rem; margin-bottom: 0.5rem; color: var(--primary); }}
+
+        .glass-card {{
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2rem;
+            box-shadow: var(--shadow);
+        }}
+
+        .chart-container {{
+            width: 100%;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            margin-top: 1rem;
+            background: white;
+        }}
+        .chart-container img {{ width: 100%; display: block; }}
+
+        .exec-grid {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }}
+        .exec-list {{ list-style: none; margin: 0; }}
+        .exec-list li {{ padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }}
+        .exec-list li:last-child {{ border-bottom: none; }}
+
+        blockquote {{
+            background: var(--accent-soft);
+            border-left: 6px solid var(--accent);
+            padding: 2rem;
+            border-radius: 0 16px 16px 0;
+            font-style: italic;
+            margin: 2rem 0;
+            color: var(--primary);
+            font-size: 1.05rem;
+        }}
+
+        .grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }}
+
+        .profile-card {{
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: all 0.2s;
+        }}
+        .profile-card:hover {{ transform: translateY(-4px); box-shadow: var(--shadow); }}
+        
+        .profile-header {{ display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; }}
+        .profile-avatar {{
+            width: 45px; height: 45px; background: var(--primary); color: white;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 12px; font-weight: bold; font-family: 'Outfit'; font-size: 1.2rem;
+        }}
+        .profile-meta h4 {{ font-size: 1rem; color: var(--primary); }}
+        .profile-meta p {{ font-size: 0.85rem; color: var(--text-muted); margin: 0; line-height: 1.2; }}
+
+        .video-card {{
+            background: white;
+            border-left: 5px solid var(--accent);
+            padding: 1.25rem;
+            border-radius: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }}
+        .video-info h4 {{ font-size: 1rem; margin-bottom: 0.25rem; color: var(--primary); }}
+        .video-info p {{ font-size: 0.8rem; color: var(--text-muted); margin: 0; }}
+
+        .btn-accent {{
+            background: var(--accent); color: white; padding: 0.6rem 1.2rem;
+            border-radius: 8px; text-decoration: none; font-size: 0.85rem; font-weight: 600;
+            white-space: nowrap;
+        }}
+        .btn-secondary {{
+            color: var(--primary); font-size: 0.9rem; font-weight: 600; text-decoration: none;
+            margin-top: 1rem; display: inline-block;
+        }}
+
+        footer {{
+            margin-top: 6rem;
+            padding-top: 3rem;
+            border-top: 1px solid var(--border);
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }}
+
+        @media print {{
+            body {{ padding: 0; background: white; }}
+            .container {{ max-width: 100%; }}
+            .glass-card, .stats-bar {{ border: 1px solid #000; box-shadow: none; }}
+            .btn-accent, .btn-secondary {{ display: none; }}
+            section {{ page-break-inside: avoid; }}
+        }}
+    </style>
 </head>
 <body>
+    <div class="container">
+        <header>
+            <div class="brand">
+                <h1>{company_name}</h1>
+                <p>{t['report_title']} &bull; {t['date_label']}: {today}</p>
+            </div>
+            <div class="logo">
+                <img src="https://i.ibb.co/SXm16CZB/Kasona-Notion-Hintergrund.png" alt="Kasona Logo">
+            </div>
+        </header>
 
-<div class="header-grid">
-  <div>
-    <h1 style="margin:0; font-size: 26px;">{company_name}</h1>
-    <p style="margin:4px 0 0; color:#666;">Institutional Research Report — {today}</p>
-  </div>
-  <div class="logo">
-    <a href="https://kasona.ai">
-      <img src="https://i.ibb.co/SXm16CZB/Kasona-Notion-Hintergrund.png" alt="Kasona Logo">
-    </a>
-  </div>
-</div>
+        <div class="stats-bar">
+            <div class="stat-item">
+                <h5>{t['mkt_cap']}</h5>
+                <p>{_fmt_num(eodhd_data.get('market_cap'))}</p>
+            </div>
+            <div class="stat-item">
+                <h5>{t['sector']}</h5>
+                <p>{eodhd_data.get('sector', 'N/A')}</p>
+            </div>
+            <div class="stat-item">
+                <h5>{t['pe_ratio']}</h5>
+                <p>{eodhd_data.get('pe_ratio', 'N/A')}</p>
+            </div>
+            <div class="stat-item">
+                <h5>{t['div_yield']}</h5>
+                <p>{f"{float(eodhd_data.get('div_yield'))*100:.2f}%" if eodhd_data.get('div_yield') else "0.00%"}</p>
+            </div>
+        </div>
 
-<div class="content">
-  {body_html}
-</div>
+        <section>
+            <h2>{t['overview']}</h2>
+            <div class="glass-card">
+                <p>{eodhd_data.get('description', 'Information not available.')}</p>
+            </div>
+        </section>
 
-<div class="footer">
-  Erstellt durch Kasona Notion | Automatisierte Governance-Analyse<br>
-  <a href="https://kasona.ai">kasona.ai</a> — The solution for independent investors
-</div>
+        <section>
+            <h2>{t['tech_chart']}</h2>
+            <div class="chart-container">
+                <img src="{chart_url}" alt="Technical Analysis Chart">
+            </div>
+        </section>
 
+        <section>
+            <h2>{t['leadership']}</h2>
+            <div class="glass-card">
+                <div class="exec-grid">
+                    <div class="exec-analysis">
+                        {_md_to_html(leadership_analysis)}
+                    </div>
+                    <div class="exec-sidebar">
+                        <h3>{t['executives']}</h3>
+                        <ul class="exec-list">
+                            {exec_list}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>{t['history']}</h2>
+            <div class="glass-card">
+                {_md_to_html(history_analysis)}
+            </div>
+        </section>
+
+        <section>
+            <h2>{t['intelligence']}</h2>
+            <div class="video-list">
+                {yt_cards}
+            </div>
+        </section>
+
+        <section>
+            <h2>{t['ceo_insights']}</h2>
+            <blockquote>
+                {_md_to_html(ceo_excerpt)}
+                <p>...</p>
+            </blockquote>
+        </section>
+
+        <section>
+            <h2>{t['network']}</h2>
+            <div class="grid">
+                {li_cards}
+            </div>
+        </section>
+
+        <footer>
+            <p>{t['footer']}</p>
+            <p>&copy; {date.today().year} Kasona AI. All rights reserved. <a href="https://kasona.ai" style="color: var(--accent); text-decoration: none;">kasona.ai</a></p>
+        </footer>
+    </div>
 </body>
 </html>"""
     return html
+
+
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -944,6 +1257,7 @@ def sync_to_supabase(
         # Artifact Links
         "l4_report":               data.get("l4_html_report", ""),
         "html_url":                data.get("html_storage_url", ""),
+        "html_url_de":             data.get("html_storage_url_de", ""),
         
         # Metadata
         "n8n-info":                json.dumps(raw_metadata),
@@ -955,22 +1269,53 @@ def sync_to_supabase(
         payload["leadership-governance"] = eodhd["officers_text"]
 
     try:
-        res = supabase_client.table("company_presentation") \
-            .update(payload) \
-            .eq("ticker_eod", ticker_eod) \
+        # Deduplication logic: Check for exact match OR base match
+        base_ticker = ticker_eod.split(".")[0] if "." in ticker_eod else ticker_eod
+        
+        # Look for records that might be duplicates (exact OR base)
+        query = supabase_client.table("company_presentation") \
+            .select("id, ticker_eod") \
+            .or_(f"ticker_eod.eq.{ticker_eod},ticker_eod.eq.{base_ticker}") \
             .execute()
-        if len(res.data) > 0:
-            print(f"  [SUCCESS] Supabase updated for {ticker_eod}.")
-            return True
-        else:
-            print(f"  [WARNING] No existing record for {ticker_eod}. Attempting insert...")
+        
+        existing_records = query.data
+        target_id = None
+        old_ids_to_delete = []
+        
+        for rec in existing_records:
+            if rec["ticker_eod"] == ticker_eod:
+                target_id = rec["id"]
+            else:
+                old_ids_to_delete.append(rec["id"])
+
+        if target_id:
+            # Update the suffixed one
+            res = supabase_client.table("company_presentation") \
+                .update(payload) \
+                .eq("id", target_id) \
+                .execute()
+            print(f"  [SUCCESS] Supabase updated for {ticker_eod} (ID: {target_id}).")
+        elif old_ids_to_delete:
+            # Migrate the FIRST unsuffixed record to the suffixed one
+            first_old_id = old_ids_to_delete.pop(0)
             payload["ticker_eod"] = ticker_eod
-            ins = supabase_client.table("company_presentation").insert(payload).execute()
-            if len(ins.data) > 0:
-                print(f"  [SUCCESS] Supabase record inserted for {ticker_eod}.")
-                return True
-            print(f"  [ERROR] Insert also returned no rows.")
-            return False
+            res = supabase_client.table("company_presentation") \
+                .update(payload) \
+                .eq("id", first_old_id) \
+                .execute()
+            print(f"  [SUCCESS] Migrated record {first_old_id} ({base_ticker}) -> {ticker_eod}.")
+        else:
+            # Insert new
+            payload["ticker_eod"] = ticker_eod
+            res = supabase_client.table("company_presentation").insert(payload).execute()
+            print(f"  [SUCCESS] Supabase record inserted for {ticker_eod}.")
+
+        # Cleanup remaining duplicates
+        for old_id in old_ids_to_delete:
+            print(f"  [CLEAN] Deleting duplicate record: {old_id}")
+            supabase_client.table("company_presentation").delete().eq("id", old_id).execute()
+            
+        return True
     except Exception as exc:
         print(f"  [!] Supabase error: {exc}")
         return False
@@ -1081,26 +1426,12 @@ def run_pipeline(
         print(f"  [OK] {eodhd_data.get('company_name','')}")
     results["eodhd_data"] = eodhd_data
 
-    # ── Phase 5: L4 HTML Report ─────────────────────────────────────
-    print("\n[5/6] Generating L4 HTML Report...")
-    html_report = generate_l4_html_report(
-        company_name   = results["company_name"],
-        leadership_analysis = leadership_audit,
-        history_analysis    = history_data["evolution"],
-        ceo_interviews      = results.get("ceo_interviews", []),
-        podcasts            = results.get("podcasts", []),
-        linkedin_profiles   = linkedin_profiles,
-        eodhd_data          = eodhd_data,
-    )
-    results["l4_html_report"] = html_report
-    print("  [DONE]")
-
-    # ── Phase 6: Strategic Pillars & Translation ───────────────────
-    print(f"\n[6/6] Generating Strategic Pillars (Porter's, Bull/Bear)...")
+    # ── Phase 5: Strategic Pillars & Translation ───────────────────
+    print(f"\n[5/6] Generating Strategic Pillars (Porter's, Bull/Bear)...")
     pillars = run_pillars_analysis(company_name, config["gemini_key"])
     results.update(pillars)
 
-    print(f"\n[6/6] Translating Analytical Highlights to German...")
+    print(f"\n[5/6] Translating Analytical Highlights to German...")
     # Translate pillars + leadership + evolution
     to_translate = {k: v for k, v in pillars.items()}
     to_translate["leadership-governance"] = leadership_audit
@@ -1109,6 +1440,36 @@ def run_pipeline(
     de_translations = translate_analysis_to_german(to_translate, config["gemini_key"])
     results.update(de_translations)
     print("  [DONE]")
+
+    # ── Phase 6: Dual-Language L4 HTML Reports ─────────────────────
+    print("\n[6/6] Generating Dual-Language L4 HTML Reports (EN + DE)...")
+    
+    # 1. English Report
+    html_report_en = generate_l4_html_report(
+        company_name   = results["company_name"],
+        leadership_analysis = leadership_audit,
+        history_analysis    = history_data["evolution"],
+        ceo_interviews      = results.get("ceo_interviews", []),
+        podcasts            = results.get("podcasts", []),
+        linkedin_profiles   = linkedin_profiles,
+        eodhd_data          = eodhd_data,
+        language            = "en"
+    )
+    results["l4_html_report"] = html_report_en
+    
+    # 2. German Report
+    html_report_de = generate_l4_html_report(
+        company_name   = results["company_name"],
+        leadership_analysis = de_translations.get("leadership-governance_de", leadership_audit),
+        history_analysis    = de_translations.get("history-evolution_de", history_data["evolution"]),
+        ceo_interviews      = results.get("ceo_interviews", []),
+        podcasts            = results.get("podcasts", []),
+        linkedin_profiles   = linkedin_profiles,
+        eodhd_data          = eodhd_data,
+        language            = "de"
+    )
+    results["l4_html_report_de"] = html_report_de
+    print("  [DONE] Both language versions generated.")
 
     return results
 
@@ -1315,19 +1676,34 @@ def main():
                 print(f"{'-'*40}")
                 
                 try:
+                    # Normalize ticker before processing
+                    norm_ticker = normalize_ticker(curr_ticker, curr_company, config["eodhd_key"])
+                    if norm_ticker != curr_ticker:
+                        print(f"  [NORM] Normalizing batch ticker: {curr_ticker} -> {norm_ticker}")
+                    
                     # Run pipeline
-                    results = run_pipeline(curr_company, curr_ticker, config)
+                    results = run_pipeline(curr_company, norm_ticker, config)
                     
                     # Sync
                     if args.supabase_sync:
-                        # Upload HTML
-                        html_path = os.path.join(args.output_dir, f"{curr_company.replace(' ', '_')}_l4_report.html")
-                        if os.path.exists(html_path):
-                            html_url = upload_to_supabase_storage(html_path, "company-presentations", curr_ticker, supabase_client)
-                            results["html_storage_url"] = html_url
+                        # 1. Upload EN Report
+                        en_path = os.path.join(args.output_dir, f"{curr_company.replace(' ', '_')}_en.html")
+                        with open(en_path, "w", encoding="utf-8") as f:
+                            f.write(results.get("l4_html_report", ""))
                         
-                        sync_to_supabase(curr_ticker, results, supabase_client)
-                        push_to_master_index(curr_ticker, results, supabase_client)
+                        html_url_en = upload_to_supabase_storage(en_path, "company-presentations", norm_ticker, supabase_client)
+                        results["html_storage_url"] = html_url_en
+                        
+                        # 2. Upload DE Report
+                        de_path = os.path.join(args.output_dir, f"{curr_company.replace(' ', '_')}_de.html")
+                        with open(de_path, "w", encoding="utf-8") as f:
+                            f.write(results.get("l4_html_report_de", ""))
+                        
+                        html_url_de = upload_to_supabase_storage(de_path, "company-presentations", norm_ticker, supabase_client)
+                        results["html_storage_url_de"] = html_url_de
+                        
+                        sync_to_supabase(norm_ticker, results, supabase_client)
+                        push_to_master_index(norm_ticker, results, supabase_client)
                 except Exception as e:
                     print(f"  [!] Pipeline failed for {curr_company}: {e}")
             
@@ -1454,7 +1830,7 @@ def main():
 
                 # 5. Full Report Regeneration
                 if patch_payload or needs_report:
-                    print(f"    [REPORT] Regenerating full report to incorporate patches...")
+                    print(f"    [REPORT] Regenerating full dual-language reports to incorporate patches...")
                     # Fetch EODHD if needed (for metadata)
                     eodhd_data = fetch_eodhd_fundamentals(ticker, config["eodhd_key"])
                     
@@ -1469,37 +1845,57 @@ def main():
                     ceo_vids = [t for t in staged_transcripts if "ceo" in t.get("title", "").lower() or "interview" in t.get("title", "").lower()]
                     pod_vids = [t for t in staged_transcripts if t not in ceo_vids]
 
-                    # Generate HTML
-                    html_report = generate_l4_html_report(
+                    # Generate EN HTML
+                    html_report_en = generate_l4_html_report(
                         company_name = company,
                         leadership_analysis = patch_payload.get("leadership-governance", rec.get("leadership-governance")),
                         history_analysis = patch_payload.get("history-evolution", rec.get("history-evolution")),
                         ceo_interviews = ceo_vids,
                         podcasts = pod_vids,
-                        linkedin_profiles = [], # LinkedIn profiles aren't currently staged in a separate table
-                        eodhd_data = eodhd_data
+                        linkedin_profiles = [],
+                        eodhd_data = eodhd_data,
+                        language = 'en'
                     )
                     
-                    # Sync HTML to Storage
-                    temp_html = f"temp_{ticker}_report.html"
-                    with open(temp_html, "w", encoding="utf-8") as f:
-                        f.write(html_report)
+                    # Generate DE HTML
+                    html_report_de = generate_l4_html_report(
+                        company_name = company,
+                        leadership_analysis = patch_payload.get("leadership-governance_de", rec.get("leadership-governance_de")),
+                        history_analysis = patch_payload.get("history-evolution_de", rec.get("history-evolution_de")),
+                        ceo_interviews = ceo_vids,
+                        podcasts = pod_vids,
+                        linkedin_profiles = [],
+                        eodhd_data = eodhd_data,
+                        language = 'de'
+                    )
                     
                     if args.supabase_sync:
-                        html_url = upload_to_supabase_storage(temp_html, "company-presentations", ticker, supabase_client)
-                        patch_payload["l4_report"] = html_url
+                        # Sync EN
+                        temp_en = f"temp_{ticker}_en.html"
+                        with open(temp_en, "w", encoding="utf-8") as f: f.write(html_report_en)
+                        url_en = upload_to_supabase_storage(temp_en, "company-presentations", ticker, supabase_client)
+                        patch_payload["l4_report"] = url_en
+                        patch_payload["html_url"] = url_en
+                        if os.path.exists(temp_en): os.remove(temp_en)
+                        
+                        # Sync DE
+                        temp_de = f"temp_{ticker}_de.html"
+                        with open(temp_de, "w", encoding="utf-8") as f: f.write(html_report_de)
+                        url_de = upload_to_supabase_storage(temp_de, "company-presentations", ticker, supabase_client)
+                        patch_payload["html_url_de"] = url_de
+                        if os.path.exists(temp_de): os.remove(temp_de)
+                        
                         patch_payload["status"] = "uploaded"
                         
-                        # Also update Master Index metadata
+                        # Update Master Index
                         results_for_index = {
                             "company_name": company,
-                            "l4_html_report": html_report,
-                            "html_storage_url": html_url
+                            "l4_html_report": html_report_en,
+                            "l4_html_report_de": html_report_de,
+                            "html_storage_url": url_en,
+                            "html_storage_url_de": url_de
                         }
                         push_to_master_index(ticker, results_for_index, supabase_client)
-                    
-                    if os.path.exists(temp_html):
-                        os.remove(temp_html)
                 
                 if patch_payload:
                     if patch_pillars_to_supabase(ticker, patch_payload, supabase_client):
@@ -1514,6 +1910,7 @@ def main():
             sys.exit(1)
 
     # ── Single Company Run ─────────────────────────────────────────
+    staged_transcripts = None
     if not args.company:
         print("  [!] --company required for non-batch mode")
         sys.exit(1)
@@ -1540,6 +1937,10 @@ def main():
         print(f"  [OK] Found {len(approvals)} approved transcripts. Proceeding to report generation...")
         staged_transcripts = approvals
 
+    # Normalize ticker if provided
+    if args.ticker_eod:
+        args.ticker_eod = normalize_ticker(args.ticker_eod, args.company, config["eodhd_key"])
+
     # ── Full / Final Pipeline Run ──────────────────────────────────
     results = run_pipeline(args.company, args.ticker_eod, config, pre_loaded_transcripts=staged_transcripts)
 
@@ -1550,14 +1951,22 @@ def main():
 
     json_path = os.path.join(args.output_dir, f"{slug}_new_presentation.json")
     with open(json_path, "w", encoding="utf-8") as f:
-        save_data = {k: v for k, v in results.items() if k != "l4_html_report"}
+        # Don't save large HTML in JSON
+        save_data = {k: v for k, v in results.items() if k not in ["l4_html_report", "l4_html_report_de"]}
         json.dump(save_data, f, indent=2, ensure_ascii=False)
     print(f"[SAVED] JSON → {json_path}")
 
-    html_path = os.path.join(args.output_dir, f"{slug}_l4_report.html")
-    with open(html_path, "w", encoding="utf-8") as f:
+    # Save EN Report
+    en_path = os.path.join(args.output_dir, f"{slug}_en.html")
+    with open(en_path, "w", encoding="utf-8") as f:
         f.write(results.get("l4_html_report", ""))
-    print(f"[SAVED] HTML → {html_path}")
+    print(f"[SAVED] EN HTML → {en_path}")
+
+    # Save DE Report
+    de_path = os.path.join(args.output_dir, f"{slug}_de.html")
+    with open(de_path, "w", encoding="utf-8") as f:
+        f.write(results.get("l4_html_report_de", ""))
+    print(f"[SAVED] DE HTML → {de_path}")
 
     # Supabase sync
     if args.supabase_sync:
@@ -1565,10 +1974,13 @@ def main():
             print("  [!] --supabase-sync requires --ticker-eod")
             sys.exit(1)
             
-        # Upload HTML
-        if os.path.exists(html_path):
-            html_url = upload_to_supabase_storage(html_path, "company-presentations", args.ticker_eod, supabase_client)
-            results["html_storage_url"] = html_url
+        # Upload EN
+        html_url_en = upload_to_supabase_storage(en_path, "company-presentations", args.ticker_eod, supabase_client)
+        results["html_storage_url"] = html_url_en
+        
+        # Upload DE
+        html_url_de = upload_to_supabase_storage(de_path, "company-presentations", args.ticker_eod, supabase_client)
+        results["html_storage_url_de"] = html_url_de
 
         sync_to_supabase(args.ticker_eod, results, supabase_client)
         push_to_master_index(args.ticker_eod, results, supabase_client)

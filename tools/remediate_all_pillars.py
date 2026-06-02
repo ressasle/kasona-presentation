@@ -46,7 +46,9 @@ PILLARS = {
     "buyer-power": "Analysis of buyer power (Porter's 5 Forces).",
     "threat-of-entry": "Analysis of the threat of new entry (Porter's 5 Forces).",
     "substitutes": "Analysis of the threat of substitutes (Porter's 5 Forces).",
-    "ai_agent_firmenhistorie": "Deep evolutionary history, strategic pivot points, and institutional heritage analysis."
+    "ai_agent_firmenhistorie": "Deep evolutionary history, strategic pivot points, and institutional heritage analysis.",
+    "core-assets-capabilities": "Core assets, key patents, proprietary technologies, operational strengths, and organizational capabilities.",
+    "success-failure-factors": "Critical success drivers, key risk variables, and institutional investment KPIs."
 }
 
 def synthesize_batch(ticker, company_name, missing_pillars, context):
@@ -86,8 +88,8 @@ def synthesize_batch(ticker, company_name, missing_pillars, context):
     """
     
     models_to_try = [
-        "models/gemini-2.0-flash",
-        "models/gemini-2.0-flash-lite",
+        "models/gemini-3-flash-preview",
+        "models/gemini-3.1-flash-lite-preview",
         "models/gemini-flash-latest"
     ]
     
@@ -172,9 +174,7 @@ def remediate_ticker(row):
         else:
             print(f"  [FAIL] Synthesis returned no data for {ticker}.", flush=True)
 
-    # Trigger artifact regeneration regardless (to ensure quality)
-    print(f"  [GEN] Regenerating artifacts for {ticker}...", flush=True)
-    os.system(f"python tools/generate_ticker_artifacts.py --ticker {ticker}")
+    # Note: Artifact regeneration is handled by the caller (generate_ticker_artifacts.py)
 
 def main():
     target_ticker = sys.argv[1] if len(sys.argv) > 1 else None

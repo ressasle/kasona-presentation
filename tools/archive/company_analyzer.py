@@ -41,7 +41,7 @@ class CompanyAnalyzer:
 
         if gemini_key:
             self.genai_client = genai.Client(api_key=gemini_key)
-            self.model_name = "gemini-2.0-flash"
+            self.model_name = "gemini-3-flash-preview"
         else:
             self.genai_client = None
 
@@ -83,7 +83,7 @@ class CompanyAnalyzer:
                 err = str(e)
                 if "429" in err or "quota" in err.lower():
                     print(f"  [!] Gemini {current_model} quota – waiting {wait}s (attempt {attempt+1}/{max_retries})...")
-                    if attempt >= 2 and current_model == "gemini-2.0-flash":
+                    if attempt >= 2 and current_model == "gemini-3-flash-preview":
                         print("  [!] Switching to gemini-flash-latest fallback...")
                         current_model = "gemini-flash-latest"
                     time.sleep(wait)

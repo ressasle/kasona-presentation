@@ -28,7 +28,7 @@ def main():
     
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     genai.configure(api_key=GEMINI_KEY)
-    model = genai.GenerativeModel("gemini-2.0-flash") # Production model
+    model = genai.GenerativeModel("gemini-3-flash-preview") # Production model
     
     print(f"[*] Fetching fundamentals for {ticker}...")
     url = f"https://eodhd.com/api/fundamentals/{ticker}?api_token={EODHD_API_KEY}&fmt=json"

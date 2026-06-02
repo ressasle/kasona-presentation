@@ -199,6 +199,17 @@ def main():
     subprocess.run(pdf_cmd, check=True)
     pdf_path = Path(f"output/{safe_ticker}_presentation.pdf")
     
+    # 2.1 Generate HTML
+    print("[*] Generating HTML...")
+    html_cmd = [
+        "python", "tools/generate_presentation_html.py",
+        str(md_file),
+        "--ticker", ticker,
+        "--output-dir", "output"
+    ]
+    subprocess.run(html_cmd, check=True)
+    html_path = Path(f"output/{safe_ticker}_presentation.html")
+
     # 3. Generate Audio
     print("[*] Generating Audio...")
     audio_path = Path(f"output/{safe_ticker}_briefing.mp3")
@@ -210,8 +221,6 @@ def main():
     ]
     subprocess.run(audio_cmd, check=True)
     
-    # 4. Upload to Supabase Storage
-    print("[*] Uploading artifacts...")
     # 4. Upload to Supabase Storage
     print("[*] Uploading artifacts...")
     try:
@@ -226,12 +235,14 @@ def main():
             
     pdf_url = upload_file(pdf_path, "earnings-reports-presentations", ticker)
     audio_url = upload_file(audio_path, "earnings-presentation-podcasts", ticker)
+    html_url = upload_file(html_path, "earnings-reports-html", ticker)
     
     # 5. Update Supabase Record
     print("[*] Updating database URLs...")
     update_data = {
         "pdf_url": pdf_url,
         "audio_url": audio_url,
+        "html_url": html_url,
         "markdown_content": md_content,
         "status": "uploaded"
     }
@@ -241,6 +252,7 @@ def main():
     print(f"[SUCCESS] Artifacts Generated for {ticker}!")
     print(f"PDF URL: {pdf_url}")
     print(f"Audio URL: {audio_url}")
+    print(f"HTML URL: {html_url}")
     print(f"{'='*40}")
 
 if __name__ == "__main__":

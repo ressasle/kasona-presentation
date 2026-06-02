@@ -3,7 +3,7 @@ name: new-company-presentation
 description: >
   Full Python replica of the Kasona n8n company research workflow.
   Triggered when the user says "Run new presentation for [Company]".
-  Executes: APIFY YouTube scrape → Gemini 2.5 Pro Leadership Audit →
+  Executes: APIFY YouTube scrape → Gemini 3-flash Leadership Audit →
   Perplexity sonar History Analysis → GPT-4.1-nano Name Extraction →
   APIFY LinkedIn Profile Scrape → EODHD Fundamentals → L4 HTML Report → Supabase.
 ---
@@ -15,7 +15,7 @@ description: >
 | `Formular (Test)` | CLI argparse (`--company`) | — |
 | `Youtube Ceo Interview` + Filter < 6 months | `scrape_youtube_ceo_interview()` | APIFY `streamers~youtube-scraper` |
 | `Youtube Aquired Podcast` + Filter < 2 Years | `scrape_youtube_acquired_podcast()` | APIFY `streamers~youtube-scraper` |
-| `AI Agent: Leadership und Besitzstrukturen` | `run_leadership_audit()` | Gemini 2.5 Pro |
+| `AI Agent: Leadership und Besitzstrukturen` | `run_leadership_audit()` | Gemini 3-flash |
 | `AI Agent: Firmenhistorie und Analyse` | `run_history_analysis()` | Perplexity sonar via OpenRouter |
 | `Clean data` | `extract_executive_names()` | GPT-4.1-nano (OpenAI) |
 | `Code in JavaScript` (parse names) | built-in JSON parsing | — |
@@ -29,7 +29,7 @@ description: >
 
 ```env
 APIFY_API_KEY=...
-GOOGLE_GEMINI_API_KEY=...        # for Leadership Audit (Gemini 2.5 Pro)
+GOOGLE_GEMINI_API_KEY=...        # for Leadership Audit (Gemini 3-flash)
 OPENROUTER_API_KEY=...           # for History Analysis (Perplexity sonar)
 OPENAI_API_KEY=...               # for Name Extraction (GPT-4.1-nano)
 SUPABASE_URL=...
@@ -76,7 +76,7 @@ python tools/new-company-presentation.py \
 graph TD
     A[CLI: --company --ticker-eod] --> B[YouTube CEO Interviews\nAPify, filter ≤ 6 months]
     A --> C[YouTube Acquired Podcast\nAPify, filter ≤ 2 years]
-    B --> D[Leadership Audit\nGemini 2.5 Pro]
+    B --> D[Leadership Audit\nGemini 3-flash]
     C --> D
     D --> E[History Analysis\nPerplexity sonar via OpenRouter]
     D --> F[Name Extraction\nGPT-4.1-nano]
@@ -94,7 +94,7 @@ graph TD
 |---|---|
 | `company_name` | EODHD `General.Name` |
 | `description` | EODHD `General.Description` |
-| `leadership-governance` | Gemini 2.5 Pro Leadership Audit |
+| `leadership-governance` | Gemini 3-flash Leadership Audit |
 | `history-evolution` | Perplexity sonar History Analysis |
 | `ai_agent_firmenhistorie` | Same as `history-evolution` |
 | `youtube_ceo_interview` | First CEO interview URL |
@@ -106,11 +106,12 @@ graph TD
 
 ---
 
-## 6. Idempotency & ZNCR
+## 6. Idempotency & ZNCR & Formatting
 
 - The tool **updates** an existing row (matched by `ticker_eod`) and **inserts** a new one if none exists.
 - After syncing, run `remediate_all_pillars.py` to fill any remaining structural pillars (investment_thesis, bull-case, bear-case, etc.) that require additional AI synthesis.
 - Zero-Null Compliance Rule: All analytical fields must be ≥ 50 characters before artifact generation.
+- Prose Formatting Rule: Specifically for `bull-case` and `bear-case`, the content must be stored in purely prose numbered format (e.g., `1. Heading: Rationale`) and must NOT contain any JSON artifacts like brackets (`{`, `[`) or raw string quotes (`"`).
 
 ---
 
@@ -130,7 +131,7 @@ $ python tools/new-company-presentation.py --company "Halma" --ticker-eod HLMA -
   ... Apify status: SUCCEEDED
   [YT] CEO interviews after age filter: 3
 
-[2a/6] Leadership & Governance Audit (Gemini 2.5 Pro)...
+[2a/6] Leadership & Governance Audit (Gemini 3-flash)...
   [DONE]
 
 [2b/6] Company History & Analysis (Perplexity sonar via OpenRouter)...
@@ -155,3 +156,19 @@ $ python tools/new-company-presentation.py --company "Halma" --ticker-eod HLMA -
 [SYNC] Updating Supabase for ticker: HLMA...
   [SUCCESS] Supabase updated for HLMA.
 ```
+
+---
+
+## 8. Ticker Normalization & Deduplication
+
+- **Suffix Requirement**: All tickers must include their EODHD exchange suffix (e.g., `.US`, `.ST`, `.DE`, `.LSE`). This is the primary key for the Single Source of Truth (SSOT).
+- **Auto-Normalization**: The tool automatically resolves missing suffixes via EODHD Search. If search fails, it defaults to `.US` for known stock-like patterns to ensure consistency.
+- **Deduplication Logic (Database)**:
+    - When syncing a suffixed ticker (e.g., `HLMA.LSE`), the tool queries for any existing unsuffixed records (e.g., `HLMA`).
+    - If an unsuffixed record is found, its history is merged (if applicable), and the **unsuffixed record is deleted**.
+    - This ensures that each company has exactly one row in `public.company_presentation`, always with a suffix.
+- **Deduplication Logic (Storage)**:
+    - Files (HTML reports) are stored in buckets using the suffixed ticker as the root folder (e.g., `company-presentations/HLMA.LSE/...`).
+    - The tool ensures that URLs in the database always point to these suffixed storage paths.
+- **Private Companies**: For companies verified as private (e.g., `VETTER`), the ticker uses a `.PRIVATE` suffix to maintain the "one dot" rule and avoid collision with exchange-traded symbols.
+- **Single Source of Truth**: Under no circumstances should two entries exist for the same base ticker (one with and one without suffix). The suffixed version always wins.

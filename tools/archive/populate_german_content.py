@@ -20,7 +20,7 @@ class GermanContentPopulator:
         
         self.supabase = create_client(self.supabase_url, self.supabase_key)
         self.genai_client = genai.Client(api_key=self.gemini_key)
-        self.model_name = "gemini-2.0-flash"
+        self.model_name = "gemini-3-flash-preview"
 
         # New Format Persona
         self.persona = """
@@ -47,7 +47,7 @@ class GermanContentPopulator:
                 err_msg = str(e)
                 if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
                     print(f"  [!] Rate limit hit for {current_model} (attempt {attempt+1}/{max_retries}).", flush=True)
-                    if attempt >= 1 and current_model == "gemini-2.0-flash":
+                    if attempt >= 1 and current_model == "gemini-3-flash-preview":
                         print("  [!] Switching to gemini-flash-latest fallback...", flush=True)
                         current_model = "gemini-flash-latest"
                     

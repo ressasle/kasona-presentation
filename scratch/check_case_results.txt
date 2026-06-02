@@ -1,0 +1,171 @@
+﻿Tickers in DB: 68
+Presentation files found: 226
+
+--- CASE MISMATCHES (Expected vs Actual) ---
+EX: 0855_HK_presentation.pdf | AC: 0855_hk_presentation.pdf
+EX: 1SXP_DE_presentation.pdf | AC: 1sxp_de_presentation.pdf
+EX: ARENIT_ST_presentation.pdf | AC: arenit_st_presentation.pdf
+EX: ASKER_ST_presentation.pdf | AC: asker_st_presentation.pdf
+EX: ASPO_HE_presentation.pdf | AC: aspo_he_presentation.pdf
+EX: BANB_SW_presentation.pdf | AC: banb_sw_presentation.pdf
+EX: BNZL_LSE_presentation.pdf | AC: bnzl_lse_presentation.pdf
+EX: BRO_US_presentation.pdf | AC: bro_us_presentation.pdf
+EX: DESN_SW_presentation.pdf | AC: desn_sw_presentation.pdf
+EX: HIMS_US_presentation.pdf | AC: hims_us_presentation.pdf
+EX: HLMA_LSE_presentation.pdf | AC: hlma_lse_presentation.pdf
+EX: IMCD_AS_presentation.pdf | AC: imcd_as_presentation.pdf
+EX: INDT_ST_presentation.pdf | AC: indt_st_presentation.pdf
+EX: KLAR_US_presentation.pdf | AC: klar_us_presentation.pdf
+EX: LLY_US_presentation.pdf | AC: lly_us_presentation.pdf
+EX: MEDP_US_presentation.pdf | AC: medp_us_presentation.pdf
+EX: PPGN_SW_presentation.pdf | AC: ppgn_sw_presentation.pdf
+EX: QXO_US_presentation.pdf | AC: qxo_us_presentation.pdf
+EX: ROVI_MC_presentation.pdf | AC: rovi_mc_presentation.pdf
+EX: STVN_US_presentation.pdf | AC: stvn_us_presentation.pdf
+EX: WST_US_presentation.pdf | AC: wst_us_presentation.pdf
+EX: YPSN_SW_presentation.pdf | AC: ypsn_sw_presentation.pdf
+EX: ZEAL_CO_presentation.pdf | AC: zeal_co_presentation.pdf
+
+--- MISSING FILES (Expected but not found) ---
+0855_HK_presentation.md (Ticker: 0855.HK)
+1SXP_DE_presentation.md (Ticker: 1SXP.DE)
+ARENIT_ST_presentation.md (Ticker: ARENIT.ST)
+ASPO_HE_presentation.md (Ticker: ASPO.HE)
+BANB_SW_presentation.md (Ticker: BANB.SW)
+BNZL_LSE_presentation.md (Ticker: BNZL.LSE)
+BRK_B_US_presentation.md (Ticker: BRK-B.US)
+BRK_B_US_presentation.pdf (Ticker: BRK-B.US)
+BRO_US_presentation.md (Ticker: BRO.US)
+DESN_SW_presentation.md (Ticker: DESN.SW)
+HIMS_US_presentation.md (Ticker: HIMS.US)
+HLMA_LSE_presentation.md (Ticker: HLMA.LSE)
+IMCD_AS_presentation.md (Ticker: IMCD.AS)
+KLAR_US_presentation.md (Ticker: KLAR.US)
+LAGR_B_ST_presentation.pdf (Ticker: LAGR-B.ST)
+LIFCO_B_ST_presentation.pdf (Ticker: LIFCO-B.ST)
+LLY_US_presentation.md (Ticker: LLY.US)
+MEDP_US_presentation.md (Ticker: MEDP.US)
+MMGR_B_ST_presentation.pdf (Ticker: MMGR-B.ST)
+NOVO_B_CO_presentation.pdf (Ticker: NOVO-B.CO)
+PPGN_SW_presentation.md (Ticker: PPGN.SW)
+PRIVATE_SPACEX_presentation.md (Ticker: PRIVATE.SPACEX)
+PRIVATE_SPACEX_presentation.pdf (Ticker: PRIVATE.SPACEX)
+QXO_US_presentation.md (Ticker: QXO.US)
+ROKO_B_ST_presentation.pdf (Ticker: ROKO-B.ST)
+ROVI_MC_presentation.md (Ticker: ROVI.MC)
+STVN_US_presentation.md (Ticker: STVN.US)
+VIT_B_ST_presentation.pdf (Ticker: VIT-B.ST)
+WST_US_presentation.md (Ticker: WST.US)
+
+--- EXTRA FILES (Found but not matched to DB ticker) ---
+1sxp_de_de_presentation.pdf
+AAPL_presentation.md
+AAPL_presentation.pdf
+ADDT-B.ST_presentation.pdf
+ADDT_B_presentation.md
+ADDT_B_presentation.pdf
+ALV_DE_presentation.md
+AMZN_presentation.md
+AMZN_presentation.pdf
+ARI_ST_presentation.md
+ASML_presentation.md
+ASML_presentation.md
+ASML_presentation.pdf
+ASML_presentation.pdf
+BEI_presentation.md
+BEI_presentation.pdf
+DHR_US_final_presentation.md
+DHR_US_final_presentation.pdf
+GOOGL_presentation.md
+GOOGL_presentation.pdf
+LMT_presentation.md
+LMT_presentation.pdf
+MSFT_presentation.md
+MSFT_presentation.pdf
+MUV2_DE_presentation.md
+NVDA_presentation.md
+NVDA_presentation.pdf
+STRIPE_presentation.md
+STRIPE_presentation.pdf
+TSLA_presentation.md
+TSLA_presentation.pdf
+TSM_presentation.md
+TSM_presentation.pdf
+aapl_us_presentation.pdf
+addt-b_presentation.pdf
+addt-b_st_de_presentation.pdf
+addt-b_st_presentation.pdf
+apple_presentation.md
+apple_presentation.pdf
+arenit_presentation.pdf
+arenit_st_de_presentation.pdf
+asker_presentation.pdf
+asker_st_de_presentation.pdf
+asml_us_presentation.pdf
+aspo_he_de_presentation.pdf
+aspo_presentation.pdf
+banb_sw_de_presentation.pdf
+berg-b_presentation.pdf
+berg-b_st_de_presentation.pdf
+berg-b_st_presentation.pdf
+bergman_beving_presentation.pdf
+bnzl_lse_de_presentation.pdf
+bnzl_presentation.pdf
+boreo_he_de_presentation.pdf
+boreo_he_presentation.pdf
+brk-b_presentation.pdf
+brk-b_us_de_presentation.pdf
+brk-b_us_presentation.pdf
+bro_presentation.pdf
+bro_us_de_presentation.pdf
+csu_to_de_presentation.pdf
+csu_to_presentation.pdf
+desn_sw_de_presentation.pdf
+dhr_us_de_presentation.pdf
+dhr_us_presentation.pdf
+dis_us_presentation.pdf
+googl_us_presentation.pdf
+hims_us_de_presentation.pdf
+hlma_lse_de_presentation.pdf
+imcd_as_de_presentation.pdf
+imcd_presentation.pdf
+indt_presentation.pdf
+indt_st_de_presentation.pdf
+lagr-b_presentation.pdf
+lagr-b_st_de_presentation.pdf
+lagr-b_st_presentation.pdf
+lifco-b_presentation.pdf
+lifco-b_st_de_presentation.pdf
+lifco-b_st_presentation.pdf
+lly_us_de_presentation.pdf
+mccormick_presentation.pdf
+medp_us_de_presentation.pdf
+mkc_us_presentation.pdf
+mmgr-b_presentation.pdf
+mmgr-b_st_de_presentation.pdf
+mmgr-b_st_presentation.pdf
+msft_us_presentation.pdf
+novo-b_co_de_presentation.pdf
+novo-b_co_presentation.pdf
+nvda_us_presentation.pdf
+ppgn_sw_de_presentation.pdf
+private_stripe_presentation.pdf
+qxo_presentation.pdf
+qxo_us_de_presentation.pdf
+roko-b_presentation.pdf
+roko-b_st_de_presentation.pdf
+roko-b_st_presentation.pdf
+rop_presentation.pdf
+rop_us_de_presentation.pdf
+rop_us_presentation.pdf
+rovi_mc_de_presentation.pdf
+sft_lse_de_presentation.pdf
+sft_lse_presentation.pdf
+stvn_us_de_presentation.pdf
+tsla_us_presentation.pdf
+vit-b_presentation.pdf
+vit-b_st_de_presentation.pdf
+vit-b_st_presentation.pdf
+wst_us_de_presentation.pdf
+ypsn_sw_de_presentation.pdf
+zeal_co_de_presentation.pdf
